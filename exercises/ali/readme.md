@@ -16,4 +16,5 @@
 
 ## resources 
  > most are in our own group chat... 
- * https://github.com/aamini/introtodeeplearning/blob/master/lab3/solutions/RL_Solution.ipynb
+ * [Policy Grads, several algos, well documented, but not D4PG](https://github.com/MrSyee/pg-is-all-you-need)
+ * [Cart pole, Q-learning like algo, well documented](https://github.com/aamini/introtodeeplearning/blob/master/lab3/solutions/RL_Solution.ipynb)
