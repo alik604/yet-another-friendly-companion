@@ -127,3 +127,5 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_130.0_epoch35.p
+exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_135.0_epoch13.p
