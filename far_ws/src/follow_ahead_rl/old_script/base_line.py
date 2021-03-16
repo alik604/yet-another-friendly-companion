@@ -8,19 +8,15 @@ import matplotlib.pyplot as plt
 import threading
 import math
 
-from squaternion import quat2euler
-from squaternion import euler2quat
+from squaternion import Quaternion
 
 import argparse
 import rospy
 
 from gazebo_msgs.msg import ModelStates
-from geometry_msgs.msg import Twist
-from geometry_msgs.msg import Point
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Twist, Point, PoseStamped
 
 from gazebo_msgs.srv import SetModelState
-
 
 
 class Robot:
@@ -60,7 +56,6 @@ class BaseLine:
         rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_cb)
         x = threading.Thread(target=self.person_tracjetories, args=("person_trajectories",))
 
-
     def person_tracjetories(self, file_address):
         pass
 
@@ -70,7 +65,8 @@ class BaseLine:
             if msg.name[i] != "person" and msg.name[i] != "robot":
                 continue
             pos = msg.pose[i].position
-            euler = quat2euler(msg.pose[i].orientation.x, msg.pose[i].orientation.y, msg.pose[i].orientation.z, msg.pose[i].orientation.w)
+
+            euler = Quaternion(msg.pose[i].orientation.w, msg.pose[i].orientation.x, msg.pose[i].orientation.y, msg.pose[i].orientation.z).to_euler()
             orientation = euler[0]
             linear_vel = msg.twist[i].linear.x
             angular_vel = msg.twist[i].angular.z
@@ -97,4 +93,3 @@ if __name__ == '__main__':
     # wandb.init(project="followahead_rldp")
     parser = argparse.ArgumentParser(description='input weight file of the network')
     rospy.spin()
-
