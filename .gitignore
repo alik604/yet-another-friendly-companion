@@ -130,6 +130,7 @@ dmypy.json
 exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_130.0_epoch35.p
 exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_135.0_epoch13.p
 
+# From follow_ahead_rl
 **.swp
 **.swo
 **.pyc
@@ -137,3 +138,8 @@ exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_135.0_epoch13.p
 **/wandb/**
 **/log_*
 **.png
+
+# ROS build artifacts
+devel/
+.catkin_workspace
+far_ws/src/CMakeLists.txt
