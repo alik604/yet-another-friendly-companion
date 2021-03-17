@@ -45,8 +45,7 @@ from gym.utils import seeding
 
 import _thread
 
-from squaternion import quat2euler
-from squaternion import euler2quat
+from squaternion import Quaternion
 
 from simple_pid import PID
 
@@ -55,7 +54,6 @@ import pickle
 import logging
 
 logger = logging.getLogger(__name__)
-
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -188,8 +186,8 @@ class Robot():
         move_base_goal.target_pose.header.frame_id = "tb3_{}/odom".format(self.agent_num)
         move_base_goal.target_pose.header.stamp = rospy.Time.now()
         move_base_goal.target_pose.pose.position.x = goal_pos[0]
-        move_base_goal.target_pose.pose.position.y = goal_pos[1]
-        quaternion_rotation = euler2quat(0, goal_orientation, 0)
+        move_base_goal.target_pose.pose.position.y = goal_pos[1]        
+        quaternion_rotation = Quaternion.from_euler(0, goal_orientation, 0)
 
         move_base_goal.target_pose.pose.orientation.x = quaternion_rotation[3]
         move_base_goal.target_pose.pose.orientation.y = quaternion_rotation[1]
@@ -633,7 +631,8 @@ class GazeborosEnv(gym.Env):
             if not found:
                 continue
             pos = states_msg.pose[model_idx]
-            euler = quat2euler(pos.orientation.x, pos.orientation.y, pos.orientation.z, pos.orientation.w)
+            euler = Quaternion(pos.orientation.w, pos.orientation.x, pos.orientation.y, pos.orientation.z).to_euler()
+
             orientation = euler[0]
             fall_angle = np.deg2rad(90)
             if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1:
@@ -776,7 +775,8 @@ class GazeborosEnv(gym.Env):
         set_model_msg = ModelState()
         set_model_msg.model_name = name
         self.prev_action = (0,0)
-        quaternion_rotation = euler2quat(0, pose["orientation"], 0)
+        quaternion_rotation = Quaternion.from_euler(0, pose["orientation"], 0)
+
 
         set_model_msg.pose.orientation.x = quaternion_rotation[3]
         set_model_msg.pose.orientation.y = quaternion_rotation[1]

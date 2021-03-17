@@ -3,13 +3,12 @@ import math
 import random
 
 import gym
-import gym_gazeboros
+import gym_gazeboros_ac
 import numpy as np
 from logger import logger
 from PIL import Image
 from collections import namedtuple 
 from itertools import count 
-
 
 import torch
 torch.multiprocessing.set_start_method('forkserver', force=True) # critical for make multiprocessing work
@@ -20,8 +19,11 @@ import torchvision.transforms as T
 from torch.distributions import Normal, MultivariateNormal
 
 from IPython.display import clear_output
+
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib import animation
+
 from IPython.display import display
 
 import argparse
@@ -60,9 +62,7 @@ args = parser.parse_args()
 #####################  hyper parameters  ####################
 
 
-
-
-ENV_NAME = 'gazeboros-v0'  # environment name
+ENV_NAME = 'gazeborosAC-v0'  # environment name
 ENV_NAME = gym.make(ENV_NAME).unwrapped
 
 RANDOMSEED = 2  # random seed
