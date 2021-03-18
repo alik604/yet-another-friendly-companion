@@ -129,7 +129,6 @@ class PolicyNetwork(nn.Module):
         self.num_actions = num_actions
         self.action_range = action_range
 
-
     def forward(self, state):
         x = F.leaky_relu(self.linear1(state))
         x = F.leaky_relu(self.linear2(x))
