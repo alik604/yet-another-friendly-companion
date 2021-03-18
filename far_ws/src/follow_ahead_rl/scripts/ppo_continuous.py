@@ -65,7 +65,7 @@ A_UPDATE_STEPS = 4  # actor update steps
 C_UPDATE_STEPS = 4  # critic update steps
 EPS = 1e-8   # numerical residual
 MODEL_PATH = 'model/ppo_multi'
-NUM_WORKERS = 4  # or: mp.cpu_count()
+NUM_WORKERS = 1  # or: mp.cpu_count()
 ACTION_RANGE = 1.  # if unnormalized, normalized action range should be 1.
 METHOD = [
     dict(name='kl_pen', kl_target=0.01, lam=0.5),  # KL penalty
@@ -475,6 +475,7 @@ def main():
         processes=[]
         rewards=[]
 
+        print("Starting workers")
         for i in range(NUM_WORKERS):
             process = Process(target=worker, args=(i, ppo, rewards_queue))  # the args contain shared and not shared
             process.daemon=True  # all processes closed when the main stops

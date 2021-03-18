@@ -156,7 +156,7 @@ class Robot():
         else:
             self.action_client_ = None
 
-        if "person" is self.name:
+        if "person" == self.name:
             self.angular_pid = PID(0.5, 0, 0.03, setpoint=0)
             self.linear_pid = PID(1.0, 0, 0.05, setpoint=0)
         else:
@@ -575,7 +575,6 @@ class GazeborosEnv(gym.Env):
 
     def use_test_setting(self):
         self.is_use_test_setting = True
-
 
     def set_agent(self, agent_num):
         try:

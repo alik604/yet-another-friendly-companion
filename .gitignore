@@ -143,3 +143,6 @@ exercises/ali/checkpoint_sapaceInvaders_mobilenet_top_score_135.0_epoch13.p
 devel/
 .catkin_workspace
 far_ws/src/CMakeLists.txt
+
+# More to Ignore
+logs/

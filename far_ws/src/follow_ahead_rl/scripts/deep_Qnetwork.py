@@ -94,23 +94,6 @@ METHOD = [
 
 '''
 
-init_screen = get_screen()
-_, _, screen_height, screen_width = init_screen.shape 
-
-n_actions = ENV_NAME.action_space.n 
-
-policy_net = DQN(screen_height, screen_width, n_actions).to(device)
-target_net = DQN(screen_height, screen_width, n_actions).to(device)
-target_net.load_state_dict(policy_net.state_dict())
-target_net.eval()
-
-optimizer = optim.RMSprop(policy_net.parameters())
-memory = ReplayMemory(10000)
-
-steps_done = 0
-
-Transition = namedTuple("Transition", ('state', 'action', 'next_state', 'reward'))
-
 
 class ReplayMemory(object):
     def __init__(self, capacity):
@@ -133,17 +116,14 @@ class ReplayMemory(object):
 
     def __len__(self):
         return len(self.memory)
-    
-
-
 
 
 #Q-network: a CNN that takes in the difference btween the current and previous screen patches. 
 #Two ouputs: Q(s, LEFT) and Q(s, RIGHT) -- s is input into network
 #try to predict expected return of taking each action given the curren input
-class DQN(nn.Module):
+class DQN(object):
 
-    def __init__(self, h, w, outputs):
+    def __init__(self, state_dim, action_dim):
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size = 5, stride = 2)
         self.bn1 = nn.BatchNorm2d(16)
@@ -169,10 +149,6 @@ class DQN(nn.Module):
         x = F.relu(self.bn3(self.conv3(x)))
 
         return self.head(x.view(x.size(0), -1))
-
-
-#code for extracting/processing images from environment
-resize = T.Compose()([T.ToPILImage(), T.Resize(40, interpolation = Image.CUBIC), T.ToTensor()])
 
 
 #this would probably be used for the robot location -- "human" in our case
@@ -204,13 +180,6 @@ def get_screen():
     #resize, and add batch dimension (BCHW)
     return resize(screen).unsqueeze(0).to(device)
 
-ENV_NAME.reset()
-plt.figure()
-plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(), interpolation = 'none')
-plt.title('Example extracted screen')
-plt.show()
-
-
 
 def select_action(state):
     global steps_done
@@ -226,9 +195,6 @@ def select_action(state):
             return policy_net(state).max(1)[1].view(1, 1)
     else:
         return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
-
-
-episode_durations = []
 
 def plot_durations():
     plt.figure(2)
@@ -294,9 +260,132 @@ def optimize_model():
         param.grad.data.clamp_(-1, 1)
     optimizer.step()
 
+class ValueNetwork(nn.Module):
+    def __init__(self, state_dim, hidden_dim, init_w=3e-3):
+        super(ValueNetwork, self).__init__()
+
+        self.linear1 = nn.Linear(state_dim, hidden_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+        # self.linear3 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear4 = nn.Linear(hidden_dim, 1)
+        # weights initialization
+        self.linear1.weight.data.uniform_(-init_w, init_w)
+        self.linear2.weight.data.uniform_(-init_w, init_w)
+        self.linear4.bias.data.uniform_(-init_w, init_w)
+
+    def forward(self, state):
+        x = F.leaky_relu(self.linear1(state))
+        x = F.relu(self.linear2(x))
+        # x = F.relu(self.linear3(x))
+        x = self.linear4(x)
+        return x
+
+class PolicyNetwork(nn.Module):
+    def __init__(self, num_inputs, num_actions, hidden_dim, action_range=1., init_w=3e-3, log_std_min=-20, log_std_max=2):
+        super(PolicyNetwork, self).__init__()
+
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+
+        self.linear1 = nn.Linear(num_inputs, hidden_dim)
+        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear3 = nn.Linear(hidden_dim, hidden_dim//2)
+        # self.linear4 = nn.Linear(hidden_dim, hidden_dim)
+
+        self.mean_linear = nn.Linear(hidden_dim//2, num_actions)
+        # implementation 1
+        # self.log_std_linear = nn.Linear(hidden_dim, num_actions)
+        # # implementation 2: not dependent on latent features, reference:https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail/blob/master/a2c_ppo_acktr/distributions.py
+        self.log_std = AddBias(torch.zeros(num_actions))
+
+        self.num_actions = num_actions
+        self.action_range = action_range
 
 
+    def forward(self, state):
+        x = F.leaky_relu(self.linear1(state))
+        x = F.leaky_relu(self.linear2(x))
+        x = F.relu(self.linear3(x))
+        # x = F.relu(self.linear4(x))
+
+        mean = self.action_range * F.tanh(self.mean_linear(x))
+        # implementation 1
+        # log_std = self.log_std_linear(x)
+        # log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
+
+        # implementation 2
+        zeros = torch.zeros(mean.size())
+        if state.is_cuda:
+            zeros = zeros.cuda()
+        log_std = self.log_std(zeros)
+
+        return mean, log_std
+
+    def get_action(self, state, deterministic=False):
+        state = torch.FloatTensor(state).unsqueeze(0).to(device)
+        mean, log_std = self.forward(state)
+        std = log_std.exp()
+        normal = Normal(0, 1)
+        z      = normal.sample()
+        action  = mean+std*z
+        action = torch.clamp(action, -self.action_range, self.action_range)
+        return action.squeeze(0)
+
+    def sample_action(self,):
+        a=torch.FloatTensor(self.num_actions).uniform_(-1, 1)
+        return a.numpy()
+
+class NormalizedActions(gym.ActionWrapper):
+    def _action(self, action):
+        low  = self.action_space.low
+        high = self.action_space.high
+
+        action = low + (action + 1.0) * 0.5 * (high - low)
+        action = np.clip(action, low, high)
+
+        return action
+
+    def _reverse_action(self, action):
+        low  = self.action_space.low
+        high = self.action_space.high
+
+        action = 2 * (action - low) / (high - low) - 1
+        action = np.clip(action, low, high)
+
+        return action
+
+env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
+
+state_dim = env.observation_space.shape[0]
+action_dim = env.action_space.shape[0]
+
+
+# num_inputs, num_actions, hidden_dim, action_range=1., init_w=3e-3, log_std_min=-20, log_std_max=2
+policy_net = PolicyNetwork()
+
+# state_dim, hidden_dim, init_w=3e-3
+value_net = ValueNetwork()
+value_net.load_state_dict(policy_net.state_dict())
+value_net.eval()
+
+optimizer = optim.RMSprop(policy_net.parameters())
+memory = ReplayMemory(10000)
+
+steps_done = 0
+
+Transition = namedTuple("Transition", ('state', 'action', 'next_state', 'reward'))
+
+#code for extracting/processing images from environment
+resize = T.Compose()([T.ToPILImage(), T.Resize(40, interpolation = Image.CUBIC), T.ToTensor()])
+
+ENV_NAME.reset()
+plt.figure()
+plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(), interpolation = 'none')
+plt.title('Example extracted screen')
+plt.show()
+episode_durations = []
 num_episodes = 50
+
 for i_episode in range(num_episodes):
     # Initialize the environment and state
     ENV_NAME.reset()
@@ -331,7 +420,7 @@ for i_episode in range(num_episodes):
             break
     # Update the target network, copying all weights and biases in DQN
     if i_episode % TARGET_UPDATE == 0:
-        target_net.load_state_dict(policy_net.state_dict())
+        value_net.load_state_dict(policy_net.state_dict())
 
 print('Complete')
 ENV_NAME.render()
