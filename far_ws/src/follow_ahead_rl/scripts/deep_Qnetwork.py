@@ -63,7 +63,6 @@ args = parser.parse_args()
 
 
 ENV_NAME = 'gazeborosAC-v0'  # environment name
-ENV_NAME = gym.make(ENV_NAME).unwrapped
 
 RANDOMSEED = 2  # random seed
 PROJECT_NAME = "ppo_v_0.2_2point"  # Project name for loging
@@ -121,10 +120,10 @@ class ReplayMemory(object):
 #Q-network: a CNN that takes in the difference btween the current and previous screen patches. 
 #Two ouputs: Q(s, LEFT) and Q(s, RIGHT) -- s is input into network
 #try to predict expected return of taking each action given the curren input
-class DQN(object):
+class ActionNet(nn.Module):
 
-    def __init__(self, state_dim, action_dim):
-        super(DQN, self).__init__()
+    def __init__(self, h, w, outputs):
+        super(ActionNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size = 5, stride = 2)
         self.bn1 = nn.BatchNorm2d(16)
         self.conv2 = nn.Conv2d(16, 32, kernel_size = 5, stride = 2)
@@ -135,11 +134,12 @@ class DQN(object):
         #number of linear input connections depends on output of conv2d layers -- image size
         def conv2d_size_out(size, kernel_size = 5, stride = 2):
             return (size - (kernel_size - 1) - 1)  // stride +1
-        
+
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
 
         linear_input_size = convw * convh * 32
+
         self.head = nn.Linear(linear_input_size, outputs)
 
     #call with either one element to determine next action or a batch during optimization
@@ -150,51 +150,24 @@ class DQN(object):
 
         return self.head(x.view(x.size(0), -1))
 
-
-#this would probably be used for the robot location -- "human" in our case
-def get_cart_location(screen_width):
-    world_width = ENV_NAME.x_threshold * 2
-    scale = screen_width / world_width
-    return int(ENV_NAME.state[0] * scale + screen_width / 2.0)
-
-def get_screen():
-    screen = ENV_NAME.render(mode='rgb_array').transpose((2, 0, 1))
-
-    _, screen_height, screen_width = screen.shape 
-    screen = screen[:, int(screen_height*0.4):int(screen_height*0.8)]
-    view_width = int(screen_width *0.6)
-    cart_location = get_cart_location(screen_width)
-
-    if cart_location < view_width //2:
-        slice_range = slice(view_width)
-    elif cart_location > (screen_width - view_width // 2):
-        slice_range = slice(-view_width, None)
-    else:
-        slice_range = slice(cart_location - view_width // 2, cart_location + view_width //2)
-    
-    screen = screen[:, :, slice_range] #strip off edges to create square image centered at cart
-
-    screen = np.ascontiguousarray(screen, dtype = np.float32)/ 255 
-    screen = torch.from_numpy(screen) 
-
-    #resize, and add batch dimension (BCHW)
-    return resize(screen).unsqueeze(0).to(device)
-
-
 def select_action(state):
-    global steps_done
-    sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-        math.exp(-1. * steps_done / EPS_DECAY)
-    steps_done += 1
-    if sample > eps_threshold:
-        with torch.no_grad():
-            # t.max(1) will return largest column value of each row.
-            # second column on max result is index of where max element was
-            # found, so we pick action with the larger expected reward.
-            return policy_net(state).max(1)[1].view(1, 1)
-    else:
-        return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+    state = torch.FloatTensor(state).to(device)
+
+    
+
+    # global steps_done
+    # sample = random.random()
+    # eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+    #     math.exp(-1. * steps_done / EPS_DECAY)
+    # steps_done += 1
+    # if sample > eps_threshold:
+    #     with torch.no_grad():
+    #         # t.max(1) will return largest column value of each row.
+    #         # second column on max result is index of where max element was
+    #         # found, so we pick action with the larger expected reward.
+    #         return action_net(state).max(1)[1].view(1, 1)
+    # else:
+    #     return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
 
 def plot_durations():
     plt.figure(2)
@@ -237,8 +210,8 @@ def optimize_model():
 
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch)
+    # for each batch state according to action_net
+    state_action_values = action_net(state_batch).gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -256,84 +229,9 @@ def optimize_model():
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    for param in policy_net.parameters():
+    for param in action_net.parameters():
         param.grad.data.clamp_(-1, 1)
     optimizer.step()
-
-class ValueNetwork(nn.Module):
-    def __init__(self, state_dim, hidden_dim, init_w=3e-3):
-        super(ValueNetwork, self).__init__()
-
-        self.linear1 = nn.Linear(state_dim, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        # self.linear3 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear4 = nn.Linear(hidden_dim, 1)
-        # weights initialization
-        self.linear1.weight.data.uniform_(-init_w, init_w)
-        self.linear2.weight.data.uniform_(-init_w, init_w)
-        self.linear4.bias.data.uniform_(-init_w, init_w)
-
-    def forward(self, state):
-        x = F.leaky_relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
-        # x = F.relu(self.linear3(x))
-        x = self.linear4(x)
-        return x
-
-class PolicyNetwork(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_range=1., init_w=3e-3, log_std_min=-20, log_std_max=2):
-        super(PolicyNetwork, self).__init__()
-
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
-
-        self.linear1 = nn.Linear(num_inputs, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = nn.Linear(hidden_dim, hidden_dim//2)
-        # self.linear4 = nn.Linear(hidden_dim, hidden_dim)
-
-        self.mean_linear = nn.Linear(hidden_dim//2, num_actions)
-        # implementation 1
-        # self.log_std_linear = nn.Linear(hidden_dim, num_actions)
-        # # implementation 2: not dependent on latent features, reference:https://github.com/ikostrikov/pytorch-a2c-ppo-acktr-gail/blob/master/a2c_ppo_acktr/distributions.py
-        self.log_std = AddBias(torch.zeros(num_actions))
-
-        self.num_actions = num_actions
-        self.action_range = action_range
-
-
-    def forward(self, state):
-        x = F.leaky_relu(self.linear1(state))
-        x = F.leaky_relu(self.linear2(x))
-        x = F.relu(self.linear3(x))
-        # x = F.relu(self.linear4(x))
-
-        mean = self.action_range * F.tanh(self.mean_linear(x))
-        # implementation 1
-        # log_std = self.log_std_linear(x)
-        # log_std = torch.clamp(log_std, self.log_std_min, self.log_std_max)
-
-        # implementation 2
-        zeros = torch.zeros(mean.size())
-        if state.is_cuda:
-            zeros = zeros.cuda()
-        log_std = self.log_std(zeros)
-
-        return mean, log_std
-
-    def get_action(self, state, deterministic=False):
-        state = torch.FloatTensor(state).unsqueeze(0).to(device)
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-        normal = Normal(0, 1)
-        z      = normal.sample()
-        action  = mean+std*z
-        action = torch.clamp(action, -self.action_range, self.action_range)
-        return action.squeeze(0)
-
-    def sample_action(self,):
-        a=torch.FloatTensor(self.num_actions).uniform_(-1, 1)
-        return a.numpy()
 
 class NormalizedActions(gym.ActionWrapper):
     def _action(self, action):
@@ -354,57 +252,61 @@ class NormalizedActions(gym.ActionWrapper):
 
         return action
 
+def translate_state(state):
+    state = np.ndarray.tolist(state)
+    new_state = [[], [], [], []]
+    new_state[0] = state[0:12]
+    new_state[1] = state[12:24]
+    new_state[2] = state[24:36]
+    new_state[3] = state[36:47]
+
+    new_state[3].append(0)
+
+    return new_state
+
+
+# MAIN " "
+
+np.random.seed(RANDOMSEED)
+torch.manual_seed(RANDOMSEED)
+
 env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
+env.set_agent(0)
 
 state_dim = env.observation_space.shape[0]
-action_dim = env.action_space.shape[0]
+n_actions = env.action_space.shape[0]
 
+action_net = ActionNet(4, 12, n_actions).to(device)
 
-# num_inputs, num_actions, hidden_dim, action_range=1., init_w=3e-3, log_std_min=-20, log_std_max=2
-policy_net = PolicyNetwork()
-
-# state_dim, hidden_dim, init_w=3e-3
-value_net = ValueNetwork()
-value_net.load_state_dict(policy_net.state_dict())
-value_net.eval()
-
-optimizer = optim.RMSprop(policy_net.parameters())
+optimizer = optim.RMSprop(action_net.parameters())
 memory = ReplayMemory(10000)
 
 steps_done = 0
 
-Transition = namedTuple("Transition", ('state', 'action', 'next_state', 'reward'))
+Transition = namedtuple("Transition", ('state', 'action', 'next_state', 'reward'))
 
-#code for extracting/processing images from environment
-resize = T.Compose()([T.ToPILImage(), T.Resize(40, interpolation = Image.CUBIC), T.ToTensor()])
-
-ENV_NAME.reset()
-plt.figure()
-plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(), interpolation = 'none')
-plt.title('Example extracted screen')
-plt.show()
+# plt.figure()
+# plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(), interpolation = 'none')
+# plt.title('Example extracted screen')
+# plt.show()
 episode_durations = []
 num_episodes = 50
 
 for i_episode in range(num_episodes):
     # Initialize the environment and state
-    ENV_NAME.reset()
-    last_screen = get_screen()
-    current_screen = get_screen()
-    state = current_screen - last_screen
+    state = env.reset()
+
+    state = translate_state(state)
+
+
     for t in count():
         # Select and perform an action
         action = select_action(state)
-        _, reward, done, _ = ENV_NAME.step(action.item())
-        reward = torch.tensor([reward], device=device)
+        print(action)
+        
+        next_state, reward, done, _ = env.step(action)
 
-        # Observe new state
-        last_screen = current_screen
-        current_screen = get_screen()
-        if not done:
-            next_state = current_screen - last_screen
-        else:
-            next_state = None
+        reward = torch.tensor([reward], device=device)
 
         # Store the transition in memory
         memory.push(state, action, next_state, reward)
@@ -416,14 +318,15 @@ for i_episode in range(num_episodes):
         optimize_model()
         if done:
             episode_durations.append(t + 1)
-            plot_durations()
+            # plot_durations()
             break
+
     # Update the target network, copying all weights and biases in DQN
     if i_episode % TARGET_UPDATE == 0:
-        value_net.load_state_dict(policy_net.state_dict())
+        value_net.load_state_dict(action_net.state_dict())
 
 print('Complete')
-ENV_NAME.render()
-ENV_NAME.close()
-plt.ioff()
-plt.show()
+# ENV_NAME.render()
+env.close()
+# plt.ioff()
+# plt.show()

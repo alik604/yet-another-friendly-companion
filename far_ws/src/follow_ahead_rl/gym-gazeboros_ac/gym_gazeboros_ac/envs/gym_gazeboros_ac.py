@@ -245,7 +245,7 @@ class Robot():
     def update(self, init_pose):
         self.alive = True
         self.goal = {"pos": None, "orientation": None}
-        if "person" is self.name:
+        if "person" == self.name:
             self.angular_pid = PID(0.5, 0, 0.03, setpoint=0)
             self.linear_pid = PID(1.0, 0, 0.05, setpoint=0)
         else:
@@ -502,7 +502,7 @@ class GazeborosEnv(gym.Env):
         self.is_testing = False
         self.small_window_size = False
         self.use_predifined_mode_person = True
-        self.use_goal = True
+        self.use_goal = False
         self.use_orientation_in_observation = True
 
 
