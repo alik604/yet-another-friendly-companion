@@ -1,0 +1,3 @@
+To run a version of turtlerobot.launch where it launches with a number of cokecan cans in the middle of the screen just run cokecanbots.launch which refers to a .world file called cokecans.world that exists inside the worlds directory. Inside this file we can change cokecans into whatever we want and have it as an obstacle. It just requires we edit the launch file so it has this line     <arg name="world_name" value="$(find follow_ahead_rl)/worlds/cokecan.world"/> then it refers to that file which can be modified to include any object.
+
+-Scott Harrison
