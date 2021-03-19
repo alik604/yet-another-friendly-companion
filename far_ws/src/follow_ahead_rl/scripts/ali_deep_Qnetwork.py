@@ -41,23 +41,6 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 ENV_NAME = 'gazeboros-v0'  # environment name
 RANDOMSEED = 2  # random seed
 PROJECT_NAME = "ali's test"  # Project name for loging
-
-EP_MAX = 100000  # total number of episodes for training
-EP_LEN = 80  # total number of steps for each episode
-GAMMA = 0.95  # reward discount
-A_LR = 0.0001  # learning rate for actor
-C_LR = 0.0002  # learning rate for critic
-BATCH = 256  # update batchsize
-A_UPDATE_STEPS = 4  # actor update steps
-C_UPDATE_STEPS = 4  # critic update steps
-EPS = 1e-8   # numerical residual
-MODEL_PATH = 'model/ppo_multi'
-NUM_WORKERS = 1  # or: mp.cpu_count()
-ACTION_RANGE = 1.  # if unnormalized, normalized action range should be 1.
-METHOD = [
-    dict(name='kl_pen', kl_target=0.01, lam=0.5),  # KL penalty
-    dict(name='clip', epsilon=0.1),  # Clipped surrogate objective, find this is better
-    ][1]  # choose the method for optimization
 ###############################  PPO  ####################################
 
 class NormalizedActions(gym.ActionWrapper):
@@ -213,6 +196,7 @@ def main():
 
     env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
     env.seed(RANDOMSEED)
+    env.set_agent(0)
 
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
@@ -223,10 +207,11 @@ def main():
     observation_space = 47
 
     ########################
+    print(0)
     observation = env.reset()
-    exit()
+    print(1)
     agent = Agent(gamma=0.99, epsilon=1.0, batch_size=64, n_actions=action_space, eps_end=0.01,
-                input_dims=[observation], lr=0.001, eps_dec=5e-4*1.1, ALIs_over_training=1) # changed from eps_dec=5e-4
+                input_dims=[observation_space], lr=0.001, eps_dec=5e-4*1.1, ALIs_over_training=1) # changed from eps_dec=5e-4
 
     scores, eps_history = [], []
     n_games = 150
@@ -235,14 +220,20 @@ def main():
     for i in range(n_games):
         score = 0
         done = False
+        print(2)
         observation = env.reset()
+        print(3)
         while not done:
-
+            
             action = agent.choose_action(observation)
-            observation_, reward, done, info = env.step(action)
+            print(f'4: action is {action}')
+            observation_, reward, done, info = env.step(0.0)
             score += reward
+            print(5)
             agent.store_transition(observation, action, reward, observation_, done)
+            print(6)
             agent.learn()
+            print(7)
             observation = observation_
         scores.append(score)
         eps_history.append(agent.epsilon)
