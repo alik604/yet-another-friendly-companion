@@ -7,7 +7,7 @@ import math
 import random
 
 import gym
-import gym_gazeboros_ac
+import gym_gazeboros#_ac
 import numpy as np
 from logger import Logger
 
@@ -34,13 +34,8 @@ from multiprocessing.managers import BaseManager
 
 import threading as td
 
-GPU = True
-device_idx = 0
-if GPU:
-    device = torch.device("cuda:" + str(device_idx) if torch.cuda.is_available() else "cpu")
-else:
-    device = torch.device("cpu")
-print(device)
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print(f'Device is {device}')
 
 
 parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
@@ -51,7 +46,7 @@ args = parser.parse_args()
 
 #####################  hyper parameters  ####################
 
-ENV_NAME = 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
 RANDOMSEED = 2  # random seed
 PROJECT_NAME = "ppo_v_0.2_2point"  # Project name for loging
 
@@ -64,8 +59,10 @@ BATCH = 256  # update batchsize
 A_UPDATE_STEPS = 4  # actor update steps
 C_UPDATE_STEPS = 4  # critic update steps
 EPS = 1e-8   # numerical residual
-MODEL_PATH = 'model/ppo_multi'
-NUM_WORKERS = 1  # or: mp.cpu_count()
+MODEL_PATH = 'model_weights/ppo_multi'
+
+# TODO increase, after revarting model to 3 layers, to save VRAM
+NUM_WORKERS = 3  # or: mp.cpu_count()
 ACTION_RANGE = 1.  # if unnormalized, normalized action range should be 1.
 METHOD = [
     dict(name='kl_pen', kl_target=0.01, lam=0.5),  # KL penalty
@@ -94,17 +91,18 @@ class ValueNetwork(nn.Module):
 
         self.linear1 = nn.Linear(state_dim, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        # self.linear3 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear3 = nn.Linear(hidden_dim, hidden_dim)
         self.linear4 = nn.Linear(hidden_dim, 1)
         # weights initialization
         self.linear1.weight.data.uniform_(-init_w, init_w)
         self.linear2.weight.data.uniform_(-init_w, init_w)
+        self.linear3.weight.data.uniform_(-init_w, init_w)
         self.linear4.bias.data.uniform_(-init_w, init_w)
 
     def forward(self, state):
         x = F.leaky_relu(self.linear1(state))
         x = F.relu(self.linear2(x))
-        # x = F.relu(self.linear3(x))
+        x = F.relu(self.linear3(x))
         x = self.linear4(x)
         return x
 
@@ -117,8 +115,8 @@ class PolicyNetwork(nn.Module):
 
         self.linear1 = nn.Linear(num_inputs, hidden_dim)
         self.linear2 = nn.Linear(hidden_dim, hidden_dim)
-        self.linear3 = nn.Linear(hidden_dim, hidden_dim//2)
-        # self.linear4 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear3 = nn.Linear(hidden_dim, hidden_dim)
+        self.linear4 = nn.Linear(hidden_dim, hidden_dim//2)
 
         self.mean_linear = nn.Linear(hidden_dim//2, num_actions)
         # implementation 1
@@ -133,7 +131,7 @@ class PolicyNetwork(nn.Module):
         x = F.leaky_relu(self.linear1(state))
         x = F.leaky_relu(self.linear2(x))
         x = F.relu(self.linear3(x))
-        # x = F.relu(self.linear4(x))
+        x = F.relu(self.linear4(x))
 
         mean = self.action_range * F.tanh(self.mean_linear(x))
         # implementation 1
@@ -323,15 +321,16 @@ class PPO(object):
         torch.save(self.actor.state_dict(), path+'_actor')
         torch.save(self.critic.state_dict(), path+'_critic')
         torch.save(self.actor_old.state_dict(), path+'_actor_old')
-        if model_step is not None:
+        if model_step is not None: # TODO now sure if its a bug or just a waste of space, but it's "fine" 
             torch.save(self.actor.state_dict(), path+'_actor_{}'.format(model_step))
             torch.save(self.critic.state_dict(), path+'_critic_{}'.format(model_step))
             torch.save(self.actor_old.state_dict(), path+'_actor_old_{}'.format(model_step))
 
-    def load_model(self, path, set_eval=False):
+    def load_model(self, path, set_eval=False): # Yup It's fine
         self.actor.load_state_dict(torch.load(path+'_actor'))
         self.critic.load_state_dict(torch.load(path+'_critic'))
         self.actor_old.load_state_dict(torch.load(path+'_actor_old'))
+        print(f'\n\n***Loaded models***\n\n')
 
         if set_eval:
             self.actor.eval()
@@ -428,11 +427,7 @@ def worker(id, ppo, rewards_queue):
         if ep%50==0:
             ppo.save_model(MODEL_PATH, ep)
         print(
-            'Episode: {}/{}  | Episode Reward: {:.4f}  | Running Time: {:.4f}'.format(
-                ep, EP_MAX, ep_r,
-                time.time() - t0
-            )
-        )
+            f'Episode: {ep}/{EP_MAX}  | Episode Reward: {ep_r:.4f}  | Running Time: {time.time() - t0:.4f}')
         logger.scalar_summary("reward".format(id), ep_r, ep*4)
         observation_image = env.get_current_observation_image()
         if len(heading_avg)>0:
@@ -463,6 +458,7 @@ def main():
     try:
         ppo.load_model(MODEL_PATH)
     except Exception as e:
+        print(f'Pretrained models not found in {MODEL_PATH}.\nBuckle up it is going to be a long hot night')
         print("error {}".format(e))
     if args.train:
         ppo.actor.share_memory()
