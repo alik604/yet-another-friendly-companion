@@ -482,6 +482,7 @@ class GazeborosEnv(gym.Env):
     def __init__(self, is_evaluation=False):
 
         self.is_evaluation_ = is_evaluation
+        self.obstacle_state = None
 
         # self.bridge = CvBridge()
         # self.image_pub = rospy.Publisher("image_observation", Image)
@@ -573,6 +574,9 @@ class GazeborosEnv(gym.Env):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
         return self.path_follower_test_settings[self.path_follower_current_setting_idx][2]
 
+    def get_obstacle_state(self):
+        return self.obstacle_state
+
     def use_test_setting(self):
         self.is_use_test_setting = True
 
@@ -621,6 +625,8 @@ class GazeborosEnv(gym.Env):
             self.init_simulator()
 
     def model_states_cb(self,  states_msg):
+        self.obstacle_state = states_msg.pose[1]
+
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
