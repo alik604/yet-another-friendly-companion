@@ -482,7 +482,6 @@ class GazeborosEnv(gym.Env):
     def __init__(self, is_evaluation=False):
 
         self.is_evaluation_ = is_evaluation
-        self.obstacle_state = None
 
         # self.bridge = CvBridge()
         # self.image_pub = rospy.Publisher("image_observation", Image)
@@ -506,13 +505,15 @@ class GazeborosEnv(gym.Env):
         self.use_goal = False
         self.use_orientation_in_observation = True
 
-
         self.collision_distance = 0.3
         self.best_distance = 1.5
         self.robot_mode = 0
         self.window_size = 10
         self.use_movebase = True
         self.use_reachability = False
+
+        self.use_obstacles = False
+        self.obstacle_state = None
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -576,6 +577,10 @@ class GazeborosEnv(gym.Env):
 
     def get_obstacle_state(self):
         return self.obstacle_state
+    
+    def set_use_obstacles(self):
+        self.use_obstacles = True
+        return
 
     def use_test_setting(self):
         self.is_use_test_setting = True
@@ -797,6 +802,14 @@ class GazeborosEnv(gym.Env):
         rospy.wait_for_service('/gazebo/set_model_state')
         self.set_model_state_sp(set_model_msg)
 
+    # Use to move an obstacle in Gazebo
+    # Example Usage: env.set_obstacle_pos("obstacle_cylinder", 0, 0, 0)
+    def set_obstacle_pos(self, obs_name, x, y, orientation):
+        self.set_use_obstacles()
+
+        obstacle_pose = {"pos": (x,y), "orientation":orientation}
+        self.set_pos(obs_name, obstacle_pose)
+
     def init_simulator(self):
 
         self.number_of_steps = 0
@@ -822,6 +835,11 @@ class GazeborosEnv(gym.Env):
         self.prev_action = (0,0)
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
+
+        # Move obstacle out of the way if we're not using it
+        if not self.use_obstacles:
+            # TODO hardcoding obstacle names is rough, make a way to detect them automaticaly
+            self.set_obstacle_pos("obstacle_cylinder", 50, 50, 0)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
