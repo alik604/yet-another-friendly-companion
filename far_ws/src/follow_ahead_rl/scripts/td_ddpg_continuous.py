@@ -9,7 +9,7 @@ import random
 import os
 
 import gym
-import gym_gazeboros#_ac
+import gym_gazeboros_ac
 import numpy as np
 from logger import Logger
 
@@ -41,15 +41,9 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f'Device is {device}')
 
 
-parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
-parser.add_argument('--train', dest='train', action='store_true', default=True)
-parser.add_argument('--test', dest='test', action='store_true', default=False)
-
-args = parser.parse_args()
-
 ###############################  hyper parameters  #########################
 
-ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'gazeborosAC-v0' # 'gazeborosAC-v0'  # environment name
 RANDOMSEED = 42  # random seed
 
 ###############################  TD DDPG   #################################
@@ -438,7 +432,7 @@ def main():
     score_history = []
 
     agent.load_models()
-    n_games = 50#7500
+    n_games = 5000#7500
     for i in range(n_games):
         observation = env.reset()
         done = False
@@ -451,12 +445,14 @@ def main():
             score += reward
             observation = observation_
         score_history.append(score)
-        avg_score = np.mean(score_history[-25:])
+        window = 25
+        avg_score = np.mean(score_history[-window:])
 
-        if i % 500 == 0:
+        if i % 100 == 0:
             agent.save_periodic_models(epoch=i)
 
-        if avg_score > best_score and len(score_history) > 25:
+        if avg_score > best_score and i > window:
+	    # print(f'avg_score is greater than best_score, Saving Model')
             best_score = avg_score
             agent.save_models()
 

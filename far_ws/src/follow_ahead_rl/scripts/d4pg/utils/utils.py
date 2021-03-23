@@ -5,7 +5,7 @@ from glob import glob
 import os
 import yaml
 
-import gym_gazeboros
+import gym_gazeboros_ac
 
 
 

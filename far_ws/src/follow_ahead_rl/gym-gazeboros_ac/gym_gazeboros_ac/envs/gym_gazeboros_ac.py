@@ -602,6 +602,7 @@ class GazeborosEnv(gym.Env):
         self.paths = []
         self.log_file = None
         try:
+	    #with open('/home/alik604/person_trajectories_rl.pkl', 'rb') as f: # literal location
             with open('data/person_trajectories_rl.pkl', 'rb') as f:
                 paths = pickle.load(f)
                 for path in paths:
@@ -1364,7 +1365,7 @@ class GazeborosEnv(gym.Env):
             self.update_observation_image()
             episode_over = True
             rospy.loginfo('collision happened episode over')
-            reward -= 0.5
+            reward -= 0.5 # maybe remove less when in start of leaning 
         elif distance > 5:
             self.update_observation_image()
             self.is_max_distance = True

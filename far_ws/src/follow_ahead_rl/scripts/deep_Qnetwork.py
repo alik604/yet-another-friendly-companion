@@ -123,6 +123,7 @@ class ReplayMemory(object):
 class ActionNet(nn.Module):
 
     def __init__(self, h, w, outputs):
+	'''
         super(ActionNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size = 5, stride = 2)
         self.bn1 = nn.BatchNorm2d(16)
@@ -141,6 +142,9 @@ class ActionNet(nn.Module):
         linear_input_size = convw * convh * 32
 
         self.head = nn.Linear(linear_input_size, outputs)
+	'''
+	
+	
 
     #call with either one element to determine next action or a batch during optimization
     def forward(self, x):

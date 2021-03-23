@@ -7,7 +7,7 @@ import math
 import random
 
 import gym
-import gym_gazeboros#_ac
+import gym_gazeboros_ac
 import numpy as np
 from logger import Logger
 
@@ -46,7 +46,7 @@ args = parser.parse_args()
 
 #####################  hyper parameters  ####################
 
-ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'gazeborosAC-v0' #  # environment name
 RANDOMSEED = 2  # random seed
 PROJECT_NAME = "ppo_v_0.2_2point"  # Project name for loging
 
@@ -62,7 +62,7 @@ EPS = 1e-8   # numerical residual
 MODEL_PATH = 'model_weights/ppo_multi'
 
 # TODO increase, after revarting model to 3 layers, to save VRAM
-NUM_WORKERS = 3  # or: mp.cpu_count()
+NUM_WORKERS = 2  # or: mp.cpu_count()
 ACTION_RANGE = 1.  # if unnormalized, normalized action range should be 1.
 METHOD = [
     dict(name='kl_pen', kl_target=0.01, lam=0.5),  # KL penalty

@@ -1,11 +1,11 @@
 # Environment parameters
 
-env: gazeboros-v0
+env: gazeborosAC-v0
 state_dim: 27 # or 47? this should be inferred from a util.py rad_config anyways
 action_dim: 2
 action_low: -1
 action_high: 1
-num_agents: 4 # 4
+num_agents:  3 # 3, works with dense_size 300
 random_seed: 2019
 run_name: base_line
 use_base_line: 1
@@ -41,7 +41,7 @@ device: cuda
 critic_learning_rate: 0.0005
 actor_learning_rate: 0.0005
 ### this is changed by hand in networks.py such that dense_2 is 300
-dense_size: 300 # 400 # size of the 2 hidden layers in networks
+dense_size: 400 # 400 # size of the 2 hidden layers in networks
 final_layer_init: 0.003
 num_atoms: 51 # number of atoms in output layer of distributed critic
 v_min: -20.0 # lower bound of critic value output distribution
