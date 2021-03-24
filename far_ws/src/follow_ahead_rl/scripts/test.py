@@ -97,6 +97,7 @@ class CriticNetwork(nn.Module):
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_td3')
+        self.checkpoint_dir_periodic = chkpt_dir+'/periodic'
 
         self.fc1 = nn.Linear(self.input_dims[0] + n_actions, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
@@ -121,6 +122,10 @@ class CriticNetwork(nn.Module):
         print('\n... saving checkpoint ...\n')
         T.save(self.state_dict(), self.checkpoint_file)
 
+    def save_periodic_checkpoint(self, epoch):
+        print('\n... saving periodic checkpoint ...\n')
+        T.save(self.state_dict(),os.path.join(self.checkpoint_dir_periodic, f'{self.name}_td3_{epoch:.0f}'))
+
     def load_checkpoint(self):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
@@ -135,6 +140,8 @@ class ActorNetwork(nn.Module):
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
+        self.checkpoint_dir_periodic = chkpt_dir+'/periodic'
+
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_td3')
 
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
@@ -159,6 +166,10 @@ class ActorNetwork(nn.Module):
     def save_checkpoint(self):
         print('\n... saving checkpoint ...\n')
         T.save(self.state_dict(), self.checkpoint_file)
+
+    def save_periodic_checkpoint(self, epoch):
+        print('\n... saving periodic checkpoint ...\n')
+        T.save(self.state_dict(),os.path.join(self.checkpoint_dir_periodic, f'{self.name}_td3_{epoch:.0f}'))
 
     def load_checkpoint(self):
         print('... loading checkpoint ...')
@@ -322,6 +333,14 @@ class Agent():
         self.target_critic_1.save_checkpoint()
         self.target_critic_2.save_checkpoint()
 
+    def save_periodic_models(self, epoch):
+        self.actor.save_periodic_checkpoint(epoch)
+        self.target_actor.save_periodic_checkpoint(epoch)
+        self.critic_1.save_periodic_checkpoint(epoch)
+        self.critic_2.save_periodic_checkpoint(epoch)
+        self.target_critic_1.save_periodic_checkpoint(epoch)
+        self.target_critic_2.save_periodic_checkpoint(epoch)
+
     def load_models(self):
         self.actor.load_checkpoint()
         self.target_actor.load_checkpoint()
@@ -371,7 +390,7 @@ class NormalizedActions(gym.ActionWrapper):
 
 def plot(rewards, FILENAME):
     clear_output(True)
-    plt.figure(figsize=(10,5))
+    plt.figure(figsize=(10, 5))
 
     running_avg = np.zeros(len(rewards))
     for i in range(len(running_avg)):
@@ -412,13 +431,14 @@ def main():
         env=env, batch_size=100, layer1_size=400, layer2_size=300,
         n_actions=action_dim)
 
-    best_score = env.reward_range[0]
+    best_score = -100 #env.reward_range[0]# this does not work as intended
     print(f'best_score: {best_score}')
 
+    f = open("./model_weights/TD3/logs.txt", "w")
     score_history = []
 
     agent.load_models()
-    n_games = 100000
+    n_games = 50#7500
     for i in range(n_games):
         observation = env.reset()
         done = False
@@ -431,15 +451,26 @@ def main():
             score += reward
             observation = observation_
         score_history.append(score)
-        avg_score = np.mean(score_history[-50:])
+        avg_score = np.mean(score_history[-25:])
 
-        if avg_score > best_score and len(score_history) > n_games/4:
+        if i % 500 == 0:
+            agent.save_periodic_models(epoch=i)
+
+        if avg_score > best_score and len(score_history) > 25:
             best_score = avg_score
             agent.save_models()
 
-        print(f'Episode {i} Score {score:.1f} Average score {avg_score:.1f}\n\n')
 
+        
+        f.write(f"Episode {i} Score {score:.1f} Average score {avg_score:.1f}\n")
+        
+
+        print(f'Episode {i} Score {score:.1f} Average score {avg_score:.1f}\n\n')
+    f.close()
+    env.close()
     plot(score_history, f'Turtlebot_Continuous_TD_DDPG_games_{n_games}.png')
+    if n_games >= 1000: # rather than best model
+        agent.save_periodic_models(epoch=n_games)
 
     # a = ppo.choose_action(s)
     # a = [-0.91, -0.91]

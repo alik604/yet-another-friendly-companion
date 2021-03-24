@@ -321,10 +321,10 @@ class PPO(object):
         torch.save(self.actor.state_dict(), path+'_actor')
         torch.save(self.critic.state_dict(), path+'_critic')
         torch.save(self.actor_old.state_dict(), path+'_actor_old')
-        if model_step is not None: # TODO now sure if its a bug or just a waste of space, but it's "fine" 
-            torch.save(self.actor.state_dict(), path+'_actor_{}'.format(model_step))
-            torch.save(self.critic.state_dict(), path+'_critic_{}'.format(model_step))
-            torch.save(self.actor_old.state_dict(), path+'_actor_old_{}'.format(model_step))
+        #if model_step is not None: # TODO now sure if its a bug or just a waste of space, but it's "fine" 
+            #torch.save(self.actor.state_dict(), path+'_actor_{}'.format(model_step))
+            #torch.save(self.critic.state_dict(), path+'_critic_{}'.format(model_step))
+            #torch.save(self.actor_old.state_dict(), path+'_actor_old_{}'.format(model_step))
 
     def load_model(self, path, set_eval=False): # Yup It's fine
         self.actor.load_state_dict(torch.load(path+'_actor'))
