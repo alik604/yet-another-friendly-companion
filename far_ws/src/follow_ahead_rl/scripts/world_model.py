@@ -1,4 +1,5 @@
 import torch as pt
+import gym
 from torch import nn, optim, distributions
 from torch.nn import functional as F
 import multiprocessing as mp
@@ -15,6 +16,17 @@ from matplotlib import pyplot as plt
 import seaborn as sns; sns.set()
 import pandas as pd
 from cma import CMAEvolutionStrategy
+
+
+###############################  hyper parameters  #########################
+
+
+#ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'LunarLander-v2'
+
+RANDOMSEED = 42  # random seed
+ 
+############################################################################
 
 class EvolutionStrategy:
   # Wrapper for CMAEvolutionStrategy
@@ -115,7 +127,8 @@ def train_rnn(rnn, optimizer, pop, random_policy=False,
       nll = pt.mean(nll, dim=0)      # mean over batch
       loss += nll
     loss = loss / len(act_batch)     # mean over trajectory
-    batch_pbar.set_description(f'loss={loss.item():.3f}')
+    val = loss.item()
+    batch_pbar.set_description('loss= ' + str(val))
 
     # update RNN
     loss.backward()
@@ -144,7 +157,7 @@ def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
     # update
     es.tell(fits)
     best_sol, best_fit = es.best
-    gen_pbar.set_description(f'best={best_fit:.3f}')
+    gen_pbar.set_description('best=' + str(best_fit))
 
     if logger is not None:
       logger.push(best_fit)
@@ -154,7 +167,7 @@ def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
 
 def random_rollout(env, seq_len=1600):
   obs_dim = env.observation_space.shape[0]
-  act_dim = env.action_space.shape[0]
+  act_dim = env.action_space.n
 
   obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
   act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
@@ -238,8 +251,8 @@ class Population:
     self.procs = []
     for rank in range(num_workers):
       parent_pipe, child_pipe = mp.Pipe()
-      proc = mp.Process(target=self._worker,
-                        name=f'Worker-{rank}', 
+      proc = mp.Process(target=self.worker,
+                        name='Worker-' + str(rank), 
                         args=(rank, child_pipe, parent_pipe))
       self.pipes.append(parent_pipe)
       self.procs.append(proc)
@@ -247,14 +260,16 @@ class Population:
       proc.start()
       child_pipe.close()
 
-  def _worker(self, rank, pipe, parent_pipe):
+  def worker(self, rank, pipe, parent_pipe):
     parent_pipe.close()
 
     rng = np.random.RandomState(rank)
 
-    env = BipedalWalker()
+    #env = BipedalWalker()
+    #env = gym.make(ENV_NAME).unwrapped
+    env = gym.make(ENV_NAME)
     obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.shape[0]
+    act_dim = env.action_space.n
 
     rnn = WorldModel(obs_dim, act_dim)
     ctrls = [Controller(obs_dim+rnn.hid_dim, act_dim)
@@ -331,6 +346,7 @@ class Population:
     rollouts = []
     all_success = True
     for rollout, success in [p.recv() for p in self.pipes]:
+      print("here")
       rollouts.extend(rollout)
       all_success = all_success and success 
 
@@ -372,7 +388,7 @@ class ValueLogger:
     self._buffer = np.zeros((bufsize, 2))
     self._i = 0 # local iterator
     self._t = 0 # global iterator
-    with open(f'{name}.csv', 'w') as f:
+    with open(name + '.csv', 'w') as f:
       f.write('step,value\n')
 
   def push(self, v):
@@ -380,14 +396,14 @@ class ValueLogger:
     self._i += 1
     self._t += 1
     if self._i == self.bufsize:
-      with open(f'{self.name}.csv', 'a') as f:
+      with open(self.name + '.csv', 'a') as f:
         for step, value in self._buffer:
-          f.write(f'{step},{value}\n')
+          f.write(str(step) + ',' + str(value) + '\n')
       self._buffer.fill(0)
       self._i = 0
 
   def plot(self, title, xlabel, ylabel):
-    dat = pd.read_csv(f'{self.name}.csv')
+    dat = pd.read_csv(self.name + '.csv')
     steps = dat['step']
     values = dat['value']
     fig, ax = plt.subplots()
@@ -395,8 +411,29 @@ class ValueLogger:
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
     ax.plot(steps, values)
-    plt.savefig(f'{self.name}.png')
+    plt.savefig(self.name + '.png')
     plt.close(fig=fig)
+'''    
+class NormalizedActions(gym.ActionWrapper):
+
+    def _action(self, action):
+        low  = self.action_space.low
+        high = self.action_space.high
+
+        action = low + (action + 1.0) * 0.5 * (high - low)
+        action = np.clip(action, low, high)
+
+        return action
+
+    def _reverse_action(self, action):
+        low  = self.action_space.low
+        high = self.action_space.high
+
+        action = 2 * (action - low) / (high - low) - 1
+        action = np.clip(action, low, high)
+
+        return action
+'''
 
 def main(args):
   print("IT'S DANGEROUS TO GO ALONE! TAKE THIS.")
@@ -404,23 +441,31 @@ def main(args):
   np.random.seed(0)
   pt.manual_seed(0)
 
-  env = BipedalWalker()
+  env =gym.make(ENV_NAME)
+  print(env)
   env.seed(0)
+  #np.random.seed(RANDOMSEED)
+  #pt.manual_seed(RANDOMSEED)
+
+ 
+  #env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
 
   obs_dim = env.observation_space.shape[0]
-  act_dim = env.action_space.shape[0]
+  #act_dim = env.action_space.shape[0]
+  act_dim = env.action_space.n
 
-  print(f"Initializing agent (device={device})...")
+  print("Initializing agent (device=" +  str(device)  + ")...")
   rnn = WorldModel(obs_dim, act_dim)
   ctrl = Controller(obs_dim+rnn.hid_dim, act_dim)
 
   # Adjust population size based on the number of available CPUs.
-  num_workers = mp.cpu_count() if args.nproc is None else args.nproc
-  num_workers = min(num_workers, mp.cpu_count())
+  #num_workers = mp.cpu_count() if args.nproc is None else args.nproc
+  #num_workers = min(num_workers, mp.cpu_count())
+  num_workers = 1
   agents_per_worker = args.popsize // num_workers
   popsize = num_workers * agents_per_worker
 
-  print(f"Initializing population with {popsize} workers...")
+  print("Initializing population with" + str(popsize) + " workers...")
   pop = Population(num_workers, agents_per_worker)
   global_mu = np.zeros_like(ctrl.genotype)
 
@@ -428,7 +473,7 @@ def main(args):
   best_logger = ValueLogger('ha_ctrl_best', bufsize=100)
 
   # Train the RNN with random policies.
-  print(f"Training M model with a random policy...")
+  print("Training M model with a random policy...")
   optimizer = optim.Adam(rnn.parameters(), lr=args.lr)
   train_rnn(rnn, optimizer, pop, random_policy=True, 
     num_rollouts=args.num_rollouts, logger=loss_logger)
@@ -441,7 +486,7 @@ def main(args):
   # Iteratively update controller and RNN.
   for i in range(args.niter):
     # Evolve controllers with the trained RNN.
-    print(f"Iter. {i}: Evolving C model...")
+    print("Iter." + str(i) + ": Evolving C model...")
     es = EvolutionStrategy(global_mu, args.sigma0, popsize)
     evolve_ctrl(ctrl, es, pop, num_gen=args.num_gen, logger=best_logger)
     best_logger.plot('C model evolution', 'gen', 'fitness')
@@ -452,7 +497,7 @@ def main(args):
     assert success
     
     # Train the RNN with the current best controller.
-    print(f"Iter. {i}: Training M model...")
+    print("Iter." + str(i) + ": Training M model...")
     train_rnn(rnn, optimizer, pop, random_policy=False,
       num_rollouts=args.num_rollouts, logger=loss_logger)
     loss_logger.plot('M model training loss', 'step', 'loss')
