@@ -502,7 +502,8 @@ class GazeborosEnv(gym.Env):
         self.is_testing = False
         self.small_window_size = False
         self.use_predifined_mode_person = True
-        self.use_goal = False
+        self.use_goal = True
+        rospy.loginfo("self.use_goal = {}".format(self.use_goal))
         self.use_orientation_in_observation = True
 
         self.collision_distance = 0.3
