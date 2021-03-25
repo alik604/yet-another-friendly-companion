@@ -1,439 +1,483 @@
-import math
-import random
-
-import gym
-# from gym_gazeboros_ac import gym_gazeboros_ac
-import gym_gazeboros_ac
+import torch as pt
+from torch import nn, optim, distributions
+from torch.nn import functional as F
+import multiprocessing as mp
 import numpy as np
-from logger import logger
-from PIL import Image
-from collections import namedtuple 
-from itertools import count 
+import torch as pt
+from torch import optim, distributions
+from tqdm import tqdm
+#from es import EvolutionStrategy
+#from bipedal_walker import BipedalWalker
+#from pop import Population, rollout
+#from utils import ValueLogger
+import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns; sns.set()
+import pandas as pd
+from cma import CMAEvolutionStrategy
 
-import torch
-torch.multiprocessing.set_start_method('forkserver', force=True) # critical for make multiprocessing work
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import torchvision.transforms as T
-from torch.distributions import Normal, MultivariateNormal
+class EvolutionStrategy:
+  # Wrapper for CMAEvolutionStrategy
+  def __init__(self, mu, sigma, popsize, weight_decay=0.01):
+    self.es = CMAEvolutionStrategy(mu.tolist(), sigma, {'popsize': popsize})
+    self.weight_decay = weight_decay
+    self.solutions = None
 
-from IPython.display import clear_output
+  @property
+  def best(self):
+    best_sol = self.es.result[0]
+    best_fit = -self.es.result[1]
+    return best_sol, best_fit
 
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib import animation
+  def _compute_weight_decay(self, model_param_list):
+    model_param_grid = np.array(model_param_list)
+    return -self.weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
 
-from IPython.display import display
+  def ask(self):
+    self.solutions = self.es.ask()
+    return self.solutions
 
-import argparse
-import time
-
-import torch.multiprocessing as mp
-from torch.multiprocessing import Process
-
-from multiprocessing import Process, Manager
-from multiprocessing.managers import BaseManager
-
-import threading as td
-
-
-#reference: https://github.com/ctallec/world-models/blob/master/models/mdrnn.py
-#set up matplotlib ->>>>>. important: note sure if we need this section for GAZEBO
-is_ipython = "inline" in matplotlib.get_backend()
-if is_ipython:
-    from IPython import display 
-
-plt.ion()
-
-GPU = True
-device_idx = 0
-if GPU:
-    device = torch.device("cuda:" + str(device_idx) if torch.cuda.is_available() else "cpu")
-else:
-    device = torch.device("cpu")
-print(device)
+  def tell(self, reward_table_result):
+    reward_table = -np.array(reward_table_result)
+    if self.weight_decay > 0:
+      l2_decay = self._compute_weight_decay(self.solutions)
+      reward_table += l2_decay
+    self.es.tell(self.solutions, reward_table.tolist())
 
 
-parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
-parser.add_argument('--train', dest='train', action='store_true', default=True)
-parser.add_argument('--test', dest='test', action='store_true', default=False)
+class WorldModel(nn.Module):
+  def __init__(self, obs_dim, act_dim, hid_dim=64):
+    super(WorldModel, self).__init__()
+    self.obs_dim = obs_dim
+    self.act_dim = act_dim 
+    self.hid_dim = hid_dim
 
-args = parser.parse_args()
+    self.lstm = nn.LSTMCell(obs_dim+act_dim, hid_dim)
+    self.mu = nn.Linear(hid_dim, obs_dim)
+    self.logsigma = nn.Linear(hid_dim, obs_dim)
 
-#####################  hyper parameters  ####################
+  def forward(self, obs, act, hid):
+    x = pt.cat([obs, act], dim=-1)
+    h, c = self.lstm(x, hid)
+    mu = self.mu(h)
+    sigma = pt.exp(self.logsigma(h))
+    return mu, sigma, (h, c)
 
+class Phenotype(nn.Module):
+  @property
+  def genotype(self):
+    params = [p.detach().view(-1) for p in self.parameters()]
+    return pt.cat(params, dim=0).cpu().numpy()
 
-ENV_NAME = 'gazeborosAC-v0'  # environment name
+  def load_genotype(self, params):
+    start = 0
+    for p in self.parameters():
+      end = start + p.numel()
+      new_p = pt.from_numpy(params[start:end])
+      p.data.copy_(new_p.view(p.shape).to(p.device))
+      start = end
 
-RANDOMSEED = 2  # random seed
-PROJECT_NAME = "ppo_v_0.2_2point"  # Project name for loging
+class Controller(Phenotype, nn.Linear):
+  def forward(self, obs, h):
+    state = pt.cat([obs, h], dim=-1)
+    return pt.tanh(super().forward(state))
 
-EP_MAX = 20000  # total number of episodes for training
-EP_LEN = 80  # total number of steps for each episode
-GAMMA = 0.999  # reward discount
-A_LR = 0.0001  # learning rate for actor
-C_LR = 0.0002  # learning rate for critic
-BATCH_SIZE = 128  # update batchsize
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 200
-TARGET_UPDATE = 10
+device = pt.device('cuda' if pt.cuda.is_available() else 'cpu')
 
-'''
+def train_rnn(rnn, optimizer, pop, random_policy=False, 
+    num_rollouts=1000, filename='ha_rnn.pt', logger=None):
+  rnn = rnn.train().to(device)
 
-A_UPDATE_STEPS = 4  # actor update steps
-C_UPDATE_STEPS = 4  # critic update steps
-EPS = 1e-8   # numerical residual
-MODEL_PATH = 'model/ppo_multi'
-NUM_WORKERS = 4  # or: mp.cpu_count()
-ACTION_RANGE = 1.  # if unnormalized, normalized action range should be 1.
-METHOD = [
-    dict(name='kl_pen', kl_target=0.01, lam=0.5),  # KL penalty
-    dict(name='clip', epsilon=0.1),  # Clipped surrogate objective, find this is better
-    ][1]  # choose the method for optimization
+  batch_size = pop.popsize
+  num_batch = num_rollouts // batch_size
 
-'''
-def gmm_loss(batch, mus, sigmas, logpi, reduce=True): # pylint: disable=too-many-arguments
-    """ Computes the gmm loss.
-    Compute minus the log probability of batch under the GMM model described
-    by mus, sigmas, pi. Precisely, with bs1, bs2, ... the sizes of the batch
-    dimensions (several batch dimension are useful when you have both a batch
-    axis and a time step axis), gs the number of mixtures and fs the number of
-    features.
-    :args batch: (bs1, bs2, *, fs) torch tensor
-    :args mus: (bs1, bs2, *, gs, fs) torch tensor
-    :args sigmas: (bs1, bs2, *, gs, fs) torch tensor
-    :args logpi: (bs1, bs2, *, gs) torch tensor
-    :args reduce: if not reduce, the mean in the following formula is ommited
-    :returns:
-    loss(batch) = - mean_{i1=0..bs1, i2=0..bs2, ...} log(
-        sum_{k=1..gs} pi[i1, i2, ..., k] * N(
-            batch[i1, i2, ..., :] | mus[i1, i2, ..., k, :], sigmas[i1, i2, ..., k, :]))
-    NOTE: The loss is not reduced along the feature dimension (i.e. it should scale ~linearily
-    with fs).
-    """
-    batch = batch.unsqueeze(-2)
-    normal_dist = Normal(mus, sigmas)
-    g_log_probs = normal_dist.log_prob(batch)
-    g_log_probs = logpi + torch.sum(g_log_probs, dim=-1)
-    max_log_probs = torch.max(g_log_probs, dim=-1, keepdim=True)[0]
-    g_log_probs = g_log_probs - max_log_probs
+  batch_pbar = tqdm(range(num_batch))
+  for i in batch_pbar:
+    # sample rollout data
+    (obs_batch, act_batch), success = pop.rollout(random_policy)
+    assert success
 
-    g_probs = torch.exp(g_log_probs)
-    probs = torch.sum(g_probs, dim=-1)
+    obs_batch = obs_batch.to(device)
+    act_batch = act_batch.to(device)
 
-    log_prob = max_log_probs.squeeze() + torch.log(probs)
-    if reduce:
-        return - torch.mean(log_prob)
-    return - log_prob
+    obs_batch, next_obs_batch = obs_batch[:-1], obs_batch[1:]
+    hid = (pt.zeros(batch_size, rnn.hid_dim).to(device),
+           pt.zeros(batch_size, rnn.hid_dim).to(device))
+    rnn.zero_grad()
 
-class ReplayMemory(object):
-    def __init__(self, capacity):
-        self.capacity = capacity 
-        self.memory = []
-        self.position = 0
-    
-    def push(self, *args):
-        """save a transition"""
+    # compute NLL loss
+    loss = 0.0
+    for obs, act, next_obs in zip(obs_batch, act_batch, next_obs_batch):
+      mu, sigma, hid = rnn(obs, act, hid)
+      dist = distributions.Normal(loc=mu, scale=sigma)
+      nll = -dist.log_prob(next_obs) # negative log-likelihood
+      nll = pt.mean(nll, dim=-1)     # mean over dimensions
+      nll = pt.mean(nll, dim=0)      # mean over batch
+      loss += nll
+    loss = loss / len(act_batch)     # mean over trajectory
+    batch_pbar.set_description(f'loss={loss.item():.3f}')
 
-        if len(self.memory) < self.capacity:
-            self.memory.append(None)
-        
-        self.memory[self.position] = Transition(*args)
-        self.position = (Self.position +1) % self.capacity 
-    
-
-    def sample (self, batch_size):
-        return random.sample(self.memory, batch_size)
-
-    def __len__(self):
-        return len(self.memory)
-
-class _MDRNNBase(nn.Module):
-    def __init__(self, latents, actions, hiddens, gaussians):
-        super().__init__()
-        self.latents = latents
-        self.actions = actions
-        self.hiddens = hiddens
-        self.gaussians = gaussians
-
-        self.gmm_linear = nn.Linear(
-            hiddens, (2 * latents + 1) * gaussians + 2)
-
-    def forward(self, *inputs):
-        pass
-#Q-network: a CNN that takes in the difference btween the current and previous screen patches. 
-#Two ouputs: Q(s, LEFT) and Q(s, RIGHT) -- s is input into network
-#try to predict expected return of taking each action given the curren input
-class ActionNet(_MDRNNBase):
-
-    def __init__(self, latents, actions, hiddens, gaussians):
-	super().__init__(latents, actions, hiddens, gaussians)
-	self.rnn = nn.LSTM(latents+ actions, hiddens)
-	
-	
-
-    #call with either one element to determine next action or a batch during optimization
-    def forward(self, actions, latents):
- 	""" MULTI STEPS forward.
-        :args actions: (SEQ_LEN, BSIZE, ASIZE) torch tensor
-        :args latents: (SEQ_LEN, BSIZE, LSIZE) torch tensor
-        :returns: mu_nlat, sig_nlat, pi_nlat, rs, ds, parameters of the GMM
-        prediction for the next latent, gaussian prediction of the reward and
-        logit prediction of terminality.
-            - mu_nlat: (SEQ_LEN, BSIZE, N_GAUSS, LSIZE) torch tensor
-            - sigma_nlat: (SEQ_LEN, BSIZE, N_GAUSS, LSIZE) torch tensor
-            - logpi_nlat: (SEQ_LEN, BSIZE, N_GAUSS) torch tensor
-            - rs: (SEQ_LEN, BSIZE) torch tensor
-            - ds: (SEQ_LEN, BSIZE) torch tensor
-        """
-	seq_len, bs = actions.size(0), actions.size(1)
-	ins = torch.cat([actions, latents], dim = -1)
-	outs, _ = self.rnn(ins)
-	gmm_outs = self.gmm_linear(outs)
-	
-	stride = self.gaussians * self.latents
-	mus = gmm_outs[:, :, :stride]
-	mus = mus.view(seq_len, bs, self.gaussians, self.latents)
-	
-	sigmas = gmm_outs[:, :, stride:2 * stride]
-	sigmas = sigmas.view(seq_len, bs, self.gaussians, self.latents)
-	sigmas = torch.exp(sigmas)
-
-	pi = gmm_outs[:, :, 2*stride:2*stride+ self.gaussians]
-	pi = pi.view(seq_len, bs, self.gaussians)
-	logpi = f.log_softmax(pi, dim = -1)
-
-	rs = gmm_outs[:, :, -2]
-	
-	ds = gmm_outs[:, :, -1]
-
-        return mus, sigmas, logpi, rs, ds
-
-class MDRNNCell(_MDRNNBase):
-    """ MDRNN model for one step forward """
-    def __init__(self, latents, actions, hiddens, gaussians):
-        super().__init__(latents, actions, hiddens, gaussians)
-        self.rnn = nn.LSTMCell(latents + actions, hiddens)
-
-    def forward(self, action, latent, hidden): # pylint: disable=arguments-differ
-        """ ONE STEP forward.
-        :args actions: (BSIZE, ASIZE) torch tensor
-        :args latents: (BSIZE, LSIZE) torch tensor
-        :args hidden: (BSIZE, RSIZE) torch tensor
-        :returns: mu_nlat, sig_nlat, pi_nlat, r, d, next_hidden, parameters of
-        the GMM prediction for the next latent, gaussian prediction of the
-        reward, logit prediction of terminality and next hidden state.
-            - mu_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
-            - sigma_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
-            - logpi_nlat: (BSIZE, N_GAUSS) torch tensor
-            - rs: (BSIZE) torch tensor
-            - ds: (BSIZE) torch tensor
-        """
-        in_al = torch.cat([action, latent], dim=1)
-
-        next_hidden = self.rnn(in_al, hidden)
-        out_rnn = next_hidden[0]
-
-        out_full = self.gmm_linear(out_rnn)
-
-        stride = self.gaussians * self.latents
-
-        mus = out_full[:, :stride]
-        mus = mus.view(-1, self.gaussians, self.latents)
-
-        sigmas = out_full[:, stride:2 * stride]
-        sigmas = sigmas.view(-1, self.gaussians, self.latents)
-        sigmas = torch.exp(sigmas)
-
-        pi = out_full[:, 2 * stride:2 * stride + self.gaussians]
-        pi = pi.view(-1, self.gaussians)
-        logpi = f.log_softmax(pi, dim=-1)
-
-        r = out_full[:, -2]
-
-        d = out_full[:, -1]
-
-        return mus, sigmas, logpi, r, d, next_hidden
-
-def select_action(state):
-    state = torch.FloatTensor(state).to(device)
-
-    # TODO: this function
-
-    # global steps_done
-    # sample = random.random()
-    # eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-    #     math.exp(-1. * steps_done / EPS_DECAY)
-    # steps_done += 1
-    # if sample > eps_threshold:
-    #     with torch.no_grad():
-    #         # t.max(1) will return largest column value of each row.
-    #         # second column on max result is index of where max element was
-    #         # found, so we pick action with the larger expected reward.
-    #         return action_net(state).max(1)[1].view(1, 1)
-    # else:
-    #     return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
-
-def plot_durations():
-    plt.figure(2)
-    plt.clf()
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
-    plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Duration')
-    plt.plot(durations_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
-
-    plt.pause(0.001)  # pause a bit so that plots are updated
-    if is_ipython:
-        display.clear_output(wait=True)
-        display.display(plt.gcf())
-
-
-def optimize_model():
-    if len(memory) < BATCH_SIZE:
-        return
-    transitions = memory.sample(BATCH_SIZE)
-    # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-    # detailed explanation). This converts batch-array of Transitions
-    # to Transition of batch-arrays.
-    batch = Transition(*zip(*transitions))
-
-    # Compute a mask of non-final states and concatenate the batch elements
-    # (a final state would've been the one after which simulation ended)
-    non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                          batch.next_state)), device=device, dtype=torch.bool)
-    non_final_next_states = torch.cat([s for s in batch.next_state
-                                                if s is not None])
-    state_batch = torch.cat(batch.state)
-    action_batch = torch.cat(batch.action)
-    reward_batch = torch.cat(batch.reward)
-
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to action_net
-    state_action_values = action_net(state_batch).gather(1, action_batch)
-
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1)[0].
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    next_state_values[non_final_mask] = target_net(non_final_next_states).max(1)[0].detach()
-    # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-
-    # Compute Huber loss
-    loss = F.smooth_l1_loss(state_action_values, expected_state_action_values.unsqueeze(1))
-
-    # Optimize the model
-    optimizer.zero_grad()
+    # update RNN
     loss.backward()
-    for param in action_net.parameters():
-        param.grad.data.clamp_(-1, 1)
     optimizer.step()
 
-class NormalizedActions(gym.ActionWrapper):
-    def _action(self, action):
-        low  = self.action_space.low
-        high = self.action_space.high
+    if logger is not None:
+      logger.push(loss.item())
 
-        action = low + (action + 1.0) * 0.5 * (high - low)
-        action = np.clip(action, low, high)
+  pt.save(rnn.state_dict(), filename)
 
-        return action
+def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
+  best_sol = None
+  best_fit = -np.inf
 
-    def _reverse_action(self, action):
-        low  = self.action_space.low
-        high = self.action_space.high
+  gen_pbar = tqdm(range(num_gen))
+  for g in gen_pbar:
+    # upload individuals
+    inds = es.ask()
+    success = pop.upload_ctrl(inds)
+    assert success
 
-        action = 2 * (action - low) / (high - low) - 1
-        action = np.clip(action, low, high)
+    # evaluate
+    fits, success = pop.evaluate()
+    assert success
+    
+    # update
+    es.tell(fits)
+    best_sol, best_fit = es.best
+    gen_pbar.set_description(f'best={best_fit:.3f}')
 
-        return action
+    if logger is not None:
+      logger.push(best_fit)
 
-def translate_state(state):
-    state = np.ndarray.tolist(state)
-    new_state = [[], [], [], []]
-    new_state[0] = state[0:12]
-    new_state[1] = state[12:24]
-    new_state[2] = state[24:36]
-    new_state[3] = state[36:47]
+  ctrl.load_genotype(best_sol)
+  pt.save(ctrl.state_dict(), filename)
 
-    new_state[3].append(0)
+def random_rollout(env, seq_len=1600):
+  obs_dim = env.observation_space.shape[0]
+  act_dim = env.action_space.shape[0]
 
-    return new_state
+  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
+  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
+  
+  obs = env.reset()
+  obs_data[0] = obs
+  for t in range(seq_len):
+    act = env.action_space.sample()
+    obs, rew, done, _ = env.step(act)
+    obs_data[t+1] = obs
+    act_data[t] = act
+    if done:
+      obs = env.reset()
 
+  return obs_data, act_data
 
-# MAIN " "
+def rollout(env, rnn, ctrl, seq_len=1600, render=False):
+  obs_dim = env.observation_space.shape[0]
+  act_dim = env.action_space.shape[0]
 
-np.random.seed(RANDOMSEED)
-torch.manual_seed(RANDOMSEED)
+  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
+  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
+  
+  obs = env.reset()
+  hid = (pt.zeros(1, rnn.hid_dim), # h
+         pt.zeros(1, rnn.hid_dim)) # c
 
-env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
-env.set_agent(0)
+  obs_data[0] = obs
+  for t in range(seq_len):
+    if render:
+      env.render()
+    obs = pt.from_numpy(obs).unsqueeze(0)
+    with pt.no_grad():
+      act = ctrl(obs, hid[0])
+      _, _, hid = rnn(obs, act, hid)
 
-state_dim = env.observation_space.shape[0]
-n_actions = env.action_space.shape[0]
+    act = act.squeeze().numpy()
+    obs, rew, done, _ = env.step(act)
+    obs_data[t+1] = obs
+    act_data[t] = act
+    if done:
+      obs = env.reset()
 
-action_net = ActionNet(4, 12, n_actions).to(device)
+  return obs_data, act_data
 
-optimizer = optim.RMSprop(action_net.parameters())
-memory = ReplayMemory(10000)
+def evaluate(env, rnn, ctrl, num_episodes=5, max_episode_steps=1600):
+  fitness = 0.0
+ 
+  for ep in range(num_episodes):
+    # Initialize observation and hidden states.
+    obs = env.reset()
+    hid = (pt.zeros(1, rnn.hid_dim), # h
+           pt.zeros(1, rnn.hid_dim)) # c
 
-steps_done = 0
+    for t in range(max_episode_steps):
+      obs = pt.from_numpy(obs).unsqueeze(0)
+      with pt.no_grad():
+        # Take an action with the controller.
+        act = ctrl(obs, hid[0])
 
-Transition = namedtuple("Transition", ('state', 'action', 'next_state', 'reward'))
+        # Predict the next observation with the RNN.
+        _, _, hid = rnn(obs, act, hid)
 
-# plt.figure()
-# plt.imshow(get_screen().cpu().squeeze(0).permute(1, 2, 0).numpy(), interpolation = 'none')
-# plt.title('Example extracted screen')
-# plt.show()
-episode_durations = []
-num_episodes = 50
+      # Take a step in the environment.
+      act = act.squeeze().numpy()
+      obs, rew, done, _ = env.step(act)
 
-for i_episode in range(num_episodes):
-    # Initialize the environment and state
-    state = env.reset()
+      fitness += rew
+      if done:
+        break
 
-    state = translate_state(state)
+  return fitness / num_episodes
 
+class Population:
+  def __init__(self, num_workers, agents_per_worker):
+    self.num_workers = num_workers
+    self.agents_per_worker = agents_per_worker
+    self.popsize = num_workers * agents_per_worker
 
-    for t in count():
-        # Select and perform an action
-        action = select_action(state)
-        print(action)
-        
-        next_state, reward, done, _ = env.step(action)
+    self.pipes = []
+    self.procs = []
+    for rank in range(num_workers):
+      parent_pipe, child_pipe = mp.Pipe()
+      proc = mp.Process(target=self._worker,
+                        name=f'Worker-{rank}', 
+                        args=(rank, child_pipe, parent_pipe))
+      self.pipes.append(parent_pipe)
+      self.procs.append(proc)
+      proc.daemon = True
+      proc.start()
+      child_pipe.close()
 
-        reward = torch.tensor([reward], device=device)
+  def _worker(self, rank, pipe, parent_pipe):
+    parent_pipe.close()
 
-        # Store the transition in memory
-        memory.push(state, action, next_state, reward)
+    rng = np.random.RandomState(rank)
 
-        # Move to the next state
-        state = next_state
+    env = BipedalWalker()
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.shape[0]
 
-        # Perform one step of the optimization (on the target network)
-        optimize_model()
-        if done:
-            episode_durations.append(t + 1)
-            # plot_durations()
-            break
+    rnn = WorldModel(obs_dim, act_dim)
+    ctrls = [Controller(obs_dim+rnn.hid_dim, act_dim)
+             for _ in range(self.agents_per_worker)]
+  
+    while True:
+      command, data = pipe.recv()
 
-    # Update the target network, copying all weights and biases in DQN
-    if i_episode % TARGET_UPDATE == 0:
-        value_net.load_state_dict(action_net.state_dict())
+      if command == 'upload_rnn': # data: rnn
+        rnn.load_state_dict(data.state_dict())
+        pipe.send((None, True))
 
-print('Complete')
-# ENV_NAME.render()
-env.close()
-# plt.ioff()
-# plt.show()
+      elif command == 'upload_ctrl': # data: ([inds], noisy)
+        inds, noisy = data
+        for ctrl, ind in zip(ctrls, inds):
+          if noisy:
+            ind += rng.normal(scale=1e-3, size=ind.shape)
+          ctrl.load_genotype(ind)
+        pipe.send((None, True))
+
+      elif command == 'rollout': # data: random_policy
+        rollouts = []
+        for ctrl in ctrls:
+          env.seed(rng.randint(2**31-1))
+          if data: # if rollout with random policy
+            trajectory = random_rollout(env)
+          else:
+            trajectory = rollout(env, rnn, ctrl)
+          rollouts.append(trajectory)
+        pipe.send((rollouts, True))
+
+      elif command == 'evaluate': # data: None
+        evaluations = []
+        for ctrl in ctrls:
+          env.seed(rng.randint(2**31-1))
+          evaluations.append(evaluate(env, rnn, ctrl))
+        pipe.send((evaluations, True))
+
+      elif command == 'close': # data: None
+        env.close()
+        pipe.send((None, True))
+        return True
+
+    return False
+
+  def upload_rnn(self, rnn):
+    for p in self.pipes:
+      p.send(('upload_rnn', rnn))
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+  def upload_ctrl(self, ctrl, noisy=False):
+    if isinstance(ctrl, np.ndarray):
+      for p in self.pipes:
+        inds = [np.copy(ctrl) for _ in range(self.agents_per_worker)]
+        p.send(('upload_ctrl', (inds, noisy)))
+    elif isinstance(ctrl, list):
+      start = 0
+      for p in self.pipes:
+        end = start + self.agents_per_worker
+        inds = [np.copy(c) for c in ctrl[start:end]]
+        p.send(('upload_ctrl', (inds, noisy)))
+        start = end
+    else:
+      return False
+
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+  def rollout(self, random_policy):
+    for p in self.pipes:
+      p.send(('rollout', random_policy))
+
+    rollouts = []
+    all_success = True
+    for rollout, success in [p.recv() for p in self.pipes]:
+      rollouts.extend(rollout)
+      all_success = all_success and success 
+
+    obs_batch = []
+    act_batch = []
+    for obs, act in rollouts:
+      obs_batch.append(obs)
+      act_batch.append(act)
+
+    # (seq_len, batch_size, dim)
+    obs_batch = pt.from_numpy(np.stack(obs_batch, axis=1))
+    act_batch = pt.from_numpy(np.stack(act_batch, axis=1))
+    return (obs_batch, act_batch), all_success
+
+  def evaluate(self):
+    for p in self.pipes:
+      p.send(('evaluate', None))
+
+    fits = []
+    all_success = True
+    for fit, success in [p.recv() for p in self.pipes]:
+      fits.extend(fit)
+      all_success = all_success and success
+
+    return fits, all_success
+
+  def close(self):
+    for p in self.pipes:
+      p.send(('close', None))
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+    #
+
+class ValueLogger:
+  def __init__(self, name, bufsize=100):
+    self.name = name
+    self.bufsize = bufsize
+    self._buffer = np.zeros((bufsize, 2))
+    self._i = 0 # local iterator
+    self._t = 0 # global iterator
+    with open(f'{name}.csv', 'w') as f:
+      f.write('step,value\n')
+
+  def push(self, v):
+    self._buffer[self._i] = (self._t, v)
+    self._i += 1
+    self._t += 1
+    if self._i == self.bufsize:
+      with open(f'{self.name}.csv', 'a') as f:
+        for step, value in self._buffer:
+          f.write(f'{step},{value}\n')
+      self._buffer.fill(0)
+      self._i = 0
+
+  def plot(self, title, xlabel, ylabel):
+    dat = pd.read_csv(f'{self.name}.csv')
+    steps = dat['step']
+    values = dat['value']
+    fig, ax = plt.subplots()
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.plot(steps, values)
+    plt.savefig(f'{self.name}.png')
+    plt.close(fig=fig)
+
+def main(args):
+  print("IT'S DANGEROUS TO GO ALONE! TAKE THIS.")
+  
+  np.random.seed(0)
+  pt.manual_seed(0)
+
+  env = BipedalWalker()
+  env.seed(0)
+
+  obs_dim = env.observation_space.shape[0]
+  act_dim = env.action_space.shape[0]
+
+  print(f"Initializing agent (device={device})...")
+  rnn = WorldModel(obs_dim, act_dim)
+  ctrl = Controller(obs_dim+rnn.hid_dim, act_dim)
+
+  # Adjust population size based on the number of available CPUs.
+  num_workers = mp.cpu_count() if args.nproc is None else args.nproc
+  num_workers = min(num_workers, mp.cpu_count())
+  agents_per_worker = args.popsize // num_workers
+  popsize = num_workers * agents_per_worker
+
+  print(f"Initializing population with {popsize} workers...")
+  pop = Population(num_workers, agents_per_worker)
+  global_mu = np.zeros_like(ctrl.genotype)
+
+  loss_logger = ValueLogger('ha_rnn_loss', bufsize=20)
+  best_logger = ValueLogger('ha_ctrl_best', bufsize=100)
+
+  # Train the RNN with random policies.
+  print(f"Training M model with a random policy...")
+  optimizer = optim.Adam(rnn.parameters(), lr=args.lr)
+  train_rnn(rnn, optimizer, pop, random_policy=True, 
+    num_rollouts=args.num_rollouts, logger=loss_logger)
+  loss_logger.plot('M model training loss', 'step', 'loss')
+  
+  # Upload the trained RNN.
+  success = pop.upload_rnn(rnn.cpu())
+  assert success
+
+  # Iteratively update controller and RNN.
+  for i in range(args.niter):
+    # Evolve controllers with the trained RNN.
+    print(f"Iter. {i}: Evolving C model...")
+    es = EvolutionStrategy(global_mu, args.sigma0, popsize)
+    evolve_ctrl(ctrl, es, pop, num_gen=args.num_gen, logger=best_logger)
+    best_logger.plot('C model evolution', 'gen', 'fitness')
+
+    # Update the global best individual and upload them.
+    global_mu = np.copy(ctrl.genotype)
+    success = pop.upload_ctrl(global_mu, noisy=True)
+    assert success
+    
+    # Train the RNN with the current best controller.
+    print(f"Iter. {i}: Training M model...")
+    train_rnn(rnn, optimizer, pop, random_policy=False,
+      num_rollouts=args.num_rollouts, logger=loss_logger)
+    loss_logger.plot('M model training loss', 'step', 'loss')
+
+    # Upload the trained RNN.
+    success = pop.upload_rnn(rnn.cpu())
+    assert success
+
+    # Test run!
+    rollout(env, rnn, ctrl, render=True)
+
+  success = pop.close()
+  assert success
+
+if __name__ == '__main__':
+  import argparse
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--niter', type=int, default=10)
+  parser.add_argument('--nproc', type=int, default=None)
+  parser.add_argument('--lr', type=float, default=1e-3)
+  parser.add_argument('--popsize', type=int, default=50)
+  parser.add_argument('--sigma0', type=float, default=0.1)
+  parser.add_argument('--num-gen', type=int, default=100)
+  parser.add_argument('--num-rollouts', type=int, default=1000)
+  args = parser.parse_args()
+
+  main(args)
+
