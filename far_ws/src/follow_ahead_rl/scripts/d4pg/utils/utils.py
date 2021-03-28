@@ -64,10 +64,17 @@ def read_config(path):
 
     Returns (dict): configuration object.
     """
+    # print(type(path))
+    # if isinstance(path, str):
+        # with open(path, 'r') as ymlfile:
+        #     cfg = yaml.load(ymlfile)
+    # else:
+        # cfg = path # path is a dict
+
     with open(path, 'r') as ymlfile:
         cfg = yaml.load(ymlfile)
-
     # Load environment from gym to set its params
+    # print(cfg)
     env = gym.make(cfg['env'])
     cfg['state_dims'] = env.observation_space.shape[0]
     cfg['state_bound_low'] = env.observation_space.low

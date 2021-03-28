@@ -125,10 +125,10 @@ class Engine(object):
         # Learner (neural net training process)
         target_policy_net = PolicyNetwork(config['state_dims'], config['action_dims'],
                                           config['dense_size'], device=config['device'])
-        if os.path.exists(config["policy_weights_best"]):
+        if os.path.exists(config.get("policy_weights_best", "location_not_found")):
             target_policy_net.load_state_dict(torch.load(config["policy_weights_best"]))
         else:
-            print ("cannot load policy {}".format(config["policy_weights_best"]))
+            print(f"cannot load policy")
         policy_net = copy.deepcopy(target_policy_net)
 
         target_policy_net.share_memory()
@@ -194,7 +194,7 @@ class Engine(object):
         if os.path.exists(config["policy_weights_best"]):
             target_policy_net.load_state_dict(torch.load(config["policy_weights_best"]))
         else:
-            print ("cannot load policy {}".format(config["policy_weights_best"]))
+            print("cannot load policy {}".format(config["policy_weights_best"]))
         policy_net = copy.deepcopy(target_policy_net)
 
         target_policy_net.share_memory()

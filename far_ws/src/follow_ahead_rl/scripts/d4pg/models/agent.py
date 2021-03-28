@@ -9,7 +9,7 @@ import torch
 
 from utils.utils import OUNoise, make_gif
 from utils.logger import Logger
-from env.utils import create_env_wrapper
+from .env.utils import create_env_wrapper
 
 
 class Agent(object):
@@ -28,8 +28,11 @@ class Agent(object):
 
         # Create environment
         self.env_wrapper = create_env_wrapper(config)
-        self.env_wrapper.env.set_agent(self.n_agent)
-        print ("set agent {}".format(n_agent))
+        try:
+            self.env_wrapper.env.set_agent(self.n_agent)
+            print("set agent {}".format(n_agent))
+        except:
+            print("\n\n\nERROR: cannot do env.set_agent()\n\n\n")
         self.ou_noise = OUNoise(dim=config["action_dim"], low=config["action_low"], high=config["action_high"])
         self.ou_noise.reset()
 
@@ -53,7 +56,8 @@ class Agent(object):
             w = torch.tensor(source_param).float()
             target_param.data.copy_(w)
 
-    def run(self, training_on, replay_queue, learner_w_queue, update_step):
+    # Payam's 
+    # def run(self, training_on, replay_queue, learner_w_queue, update_step):
         # Initialise deque buffer to store experiences for N-step returns
         self.exp_buffer = deque()
 
@@ -213,6 +217,102 @@ class Agent(object):
         #    self.save_replay_gif()
 
         #print(f"Agent {self.n_agent} done.")
+    
+    # Original 
+    def run(self, training_on, replay_queue, learner_w_queue, update_step):
+        # Initialise deque buffer to store experiences for N-step returns
+        self.exp_buffer = deque()
+
+        best_reward = -float("inf")
+        rewards = []
+        while training_on.value:
+            episode_reward = 0
+            num_steps = 0
+            self.local_episode += 1
+            self.global_episode.value += 1
+            self.exp_buffer.clear()
+
+            if self.local_episode % 100 == 0:
+                print(f"Agent: {self.n_agent}  episode {self.local_episode}")
+
+            ep_start_time = time.time()
+            state = self.env_wrapper.reset()
+            self.ou_noise.reset()
+            done = False
+            while not done:
+                action = self.actor.get_action(state)
+                if self.agent_type == "exploration":
+                    action = self.ou_noise.get_action(action, num_steps)
+                    action = action.squeeze(0)
+                else:
+                    action = action.detach().cpu().numpy().flatten()
+                next_state, reward, done = self.env_wrapper.step(action)
+
+                episode_reward += reward
+
+                state = self.env_wrapper.normalise_state(state)
+                reward = self.env_wrapper.normalise_reward(reward)
+
+                self.exp_buffer.append((state, action, reward))
+
+                # We need at least N steps in the experience buffer before we can compute Bellman
+                # rewards and add an N-step experience to replay memory
+                if len(self.exp_buffer) >= self.config['n_step_returns']:
+                    state_0, action_0, reward_0 = self.exp_buffer.popleft()
+                    discounted_reward = reward_0
+                    gamma = self.config['discount_rate']
+                    for (_, _, r_i) in self.exp_buffer:
+                        discounted_reward += r_i * gamma
+                        gamma *= self.config['discount_rate']
+                    # We want to fill buffer only with form explorator
+                    if self.agent_type == "exploration":
+                        try:
+                            replay_queue.put_nowait([state_0, action_0, discounted_reward, next_state, done, gamma])
+                        except:
+                            pass
+
+                state = next_state
+
+                if done or num_steps == self.max_steps:
+                    # add rest of experiences remaining in buffer
+                    while len(self.exp_buffer) != 0:
+                        state_0, action_0, reward_0 = self.exp_buffer.popleft()
+                        discounted_reward = reward_0
+                        gamma = self.config['discount_rate']
+                        for (_, _, r_i) in self.exp_buffer:
+                            discounted_reward += r_i * gamma
+                            gamma *= self.config['discount_rate']
+                        if self.agent_type == "exploration":
+                            try:
+                                replay_queue.put_nowait([state_0, action_0, discounted_reward, next_state, done, gamma])
+                            except:
+                               pass
+                    break
+
+                num_steps += 1
+
+            # Log metrics
+            step = update_step.value
+            self.logger.scalar_summary("agent/reward", episode_reward, step)
+            self.logger.scalar_summary("agent/episode_timing", time.time() - ep_start_time, step)
+
+            # Saving agent
+            reward_outperformed = episode_reward - best_reward > self.config["save_reward_threshold"]
+            time_to_save = self.local_episode % self.num_episode_save == 0
+            if self.n_agent == 0 and (time_to_save or reward_outperformed):
+                if episode_reward > best_reward:
+                    best_reward = episode_reward
+                self.save(f"local_episode_{self.local_episode}_reward_{best_reward:4f}")
+
+            rewards.append(episode_reward)
+            if self.agent_type == "exploration" and self.local_episode % self.config['update_agent_ep'] == 0:
+                self.update_actor_learner(learner_w_queue, training_on)
+
+        empty_torch_queue(replay_queue)
+        print(f"Agent {self.n_agent} done.")
+
+
+
 
     def save(self, checkpoint_name):
         last_path = f"{self.log_dir}"

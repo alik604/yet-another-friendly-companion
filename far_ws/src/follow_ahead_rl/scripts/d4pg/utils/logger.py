@@ -14,7 +14,7 @@ class Logger(object):
         Args:
             log_dir (str): log directory
         """
-
+        use_wandb = False
         if not use_wandb:
             self.writer = SummaryWriter(log_dir)
             self.log_dir = log_dir

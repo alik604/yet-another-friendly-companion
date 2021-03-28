@@ -6,10 +6,10 @@ action_low: 0
 action_high: 1
 num_agents: 4
 random_seed: 2019
-policy_weights: /media/payam/data/catkin_ws/src/crazyflie_rl/scripts/results/
-policy_weights_best: /media/payam/data/catkin_ws/src/crazyflie_rl/scripts/results/policy_best2.pt
-value_weights: /media/payam/data/catkin_ws/src/crazyflie_rl/scripts/results/
-value_weights_best: /media/payam/data/catkin_ws/src/crazyflie_rl/scripts/results/value_best2.pt
+policy_weights: /home/alik604/yet-another-friendly-companion/far_ws/src/follow_ahead_rl/scripts/results/
+policy_weights_best: /home/alik604/yet-another-friendly-companion/far_ws/src/follow_ahead_rl/scripts/results/policy_best2.pt
+value_weights: /home/alik604/yet-another-friendly-companion/far_ws/src/follow_ahead_rl/scripts/results/
+value_weights_best: /home/alik604/yet-another-friendly-companion/far_ws/src/follow_ahead_rl/scripts/value_best2.pt
 
 # Training parameters
 

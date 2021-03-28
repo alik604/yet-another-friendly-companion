@@ -20,10 +20,12 @@ class ValueNetwork(nn.Module):
             init_w:
         """
         super(ValueNetwork, self).__init__()
+        # hidden_size_2 = 300 # hidden_size
+        hidden_size_2 = hidden_size
 
         self.linear1 = nn.Linear(num_states + num_actions, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.linear3 = nn.Linear(hidden_size, num_atoms)
+        self.linear2 = nn.Linear(hidden_size, hidden_size_2)
+        self.linear3 = nn.Linear(hidden_size_2, num_atoms)
 
         self.linear3.weight.data.uniform_(-init_w, init_w)
         self.linear3.bias.data.uniform_(-init_w, init_w)
@@ -55,11 +57,14 @@ class PolicyNetwork(nn.Module):
             init_w:
         """
         super(PolicyNetwork, self).__init__()
+        # hidden_size_2 = 300 # hidden_size
+        hidden_size_2 = hidden_size
+
         self.device = device
         print ("numstate {} hidden {}".format(num_states, hidden_size))
         self.linear1 = nn.Linear(num_states, hidden_size)
-        self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.linear3 = nn.Linear(hidden_size, num_actions)
+        self.linear2 = nn.Linear(hidden_size, hidden_size_2)
+        self.linear3 = nn.Linear(hidden_size_2, num_actions)
 
         self.linear3.weight.data.uniform_(-init_w, init_w)
         self.linear3.bias.data.uniform_(-init_w, init_w)
