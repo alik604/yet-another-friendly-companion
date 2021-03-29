@@ -56,7 +56,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 class EnvConfig:
-    TESTING = True
+    USE_TESTING = True
     USE_OBSTACLES = False
 
 class History():
@@ -501,7 +501,7 @@ class GazeborosEnv(gym.Env):
                 }
         #self.path_follower_test_settings = {0:(7, 43, "traj_3", True)#(7,2, "traj_1", True, True), 1:(7, 12, "traj_2", True, True)}
 
-        self.is_testing = EnvConfig.TESTING
+        self.is_testing = EnvConfig.USE_TESTING
         self.small_window_size = False
         self.use_predifined_mode_person = True
         self.use_goal = True
@@ -516,6 +516,7 @@ class GazeborosEnv(gym.Env):
         self.use_reachability = False
 
         self.use_obstacles = EnvConfig.USE_OBSTACLES
+        self.obstacle_names = []
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -624,7 +625,17 @@ class GazeborosEnv(gym.Env):
         with self.lock:
             self.init_simulator()
 
-    def model_states_cb(self,  states_msg):
+    def model_states_cb(self, states_msg):
+
+        # Grab Obstacle Names for Agent
+        if not self.obstacle_names:
+            for name in states_msg.name:
+                if "obstacle" in name:
+                    for char in name:
+                        if char.isdigit():
+                            if int(char) == self.agent_num:
+                                self.obstacle_names.append(name)
+
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
@@ -795,19 +806,17 @@ class GazeborosEnv(gym.Env):
         rospy.wait_for_service('/gazebo/set_model_state')
         self.set_model_state_sp(set_model_msg)
 
-    # Use to move an obstacle in Gazebo
-    # Example Usage: env.set_obstacle_pos("obstacle_cylinder", 0, 0, 0)
-    def set_obstacle_pos(self, obs_name, x, y, orientation):
-        self.set_use_obstacles()
-
-        obstacle_pose = {"pos": (x,y), "orientation":orientation}
-        self.set_pos(obs_name, obstacle_pose)
-
-        # if self.use_jackal and "tb3" in name:
-        #     set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.1635
-        # else:
-        #     set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.099
-        # TODO make set full pos function so I can set the z dimension too
+    def set_obstacle_pos(self):
+        # TODO: obstacle position setting algorithm
+        #   1: Put in some place between the two robots
+        #   2: Random within circle
+        x = 0.5
+        y = 0.5
+        orientation = 0
+        
+        for obstacle in self.obstacle_names:
+            obstacle_pose = {"pos": (x,y), "orientation":orientation}
+            self.set_pos(obstacle, obstacle_pose)
 
     def init_simulator(self):
 
@@ -834,6 +843,7 @@ class GazeborosEnv(gym.Env):
         self.prev_action = (0,0)
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
+        self.set_obstacle_pos()
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
