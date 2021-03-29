@@ -4,7 +4,7 @@ import gym_gazeboros_ac
 from time import sleep
 
 ENV_NAME = 'gazeborosAC-v0'
-EPISODE_LEN = 20
+EPISODE_LEN = 6
 
 # Robot Chase Simulator 2021
 # How to use:
@@ -21,14 +21,14 @@ if __name__ == '__main__':
     env = gym.make(ENV_NAME).unwrapped
     env.set_agent(0)
 
-
     while True:
+        # env.set_obstacle_pos("obstacle_box",0.5, 0, 0)
         state = env.reset()
         c = 0
         for i in range(EPISODE_LEN):
 
 
-            action = [0, 0]
+            action = [0,0]
             state, reward, done, _ = env.step(action)
             
             sleep(1)
