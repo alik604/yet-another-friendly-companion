@@ -56,7 +56,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class EnvConfig:
+    # Boolean to make robots spawn at constant locations
     USE_TESTING = True
+    # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = False
 
 class History():
