@@ -55,6 +55,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class EnvConfig:
+    TESTING = True
+    USE_OBSTACLES = False
+
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
         self.idx = 0
@@ -218,8 +222,6 @@ class Robot():
                 raise Exception('Probable shared memory issue happend')
 
         return self.state_['position']
-
-
 
     def get_orientation(self):
         counter_problem = 0
@@ -499,7 +501,7 @@ class GazeborosEnv(gym.Env):
                 }
         #self.path_follower_test_settings = {0:(7, 43, "traj_3", True)#(7,2, "traj_1", True, True), 1:(7, 12, "traj_2", True, True)}
 
-        self.is_testing = False
+        self.is_testing = EnvConfig.TESTING
         self.small_window_size = False
         self.use_predifined_mode_person = True
         self.use_goal = True
@@ -513,8 +515,7 @@ class GazeborosEnv(gym.Env):
         self.use_movebase = True
         self.use_reachability = False
 
-        self.use_obstacles = False
-        self.obstacle_state = None
+        self.use_obstacles = EnvConfig.USE_OBSTACLES
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -576,13 +577,6 @@ class GazeborosEnv(gym.Env):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
         return self.path_follower_test_settings[self.path_follower_current_setting_idx][2]
 
-    def get_obstacle_state(self):
-        return self.obstacle_state
-    
-    def set_use_obstacles(self):
-        self.use_obstacles = True
-        return
-
     def use_test_setting(self):
         self.is_use_test_setting = True
 
@@ -631,8 +625,6 @@ class GazeborosEnv(gym.Env):
             self.init_simulator()
 
     def model_states_cb(self,  states_msg):
-        self.obstacle_state = states_msg.pose[1]
-
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
@@ -811,6 +803,12 @@ class GazeborosEnv(gym.Env):
         obstacle_pose = {"pos": (x,y), "orientation":orientation}
         self.set_pos(obs_name, obstacle_pose)
 
+        # if self.use_jackal and "tb3" in name:
+        #     set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.1635
+        # else:
+        #     set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.099
+        # TODO make set full pos function so I can set the z dimension too
+
     def init_simulator(self):
 
         self.number_of_steps = 0
@@ -836,11 +834,6 @@ class GazeborosEnv(gym.Env):
         self.prev_action = (0,0)
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
-
-        # Move obstacle out of the way if we're not using it
-        if not self.use_obstacles:
-            # TODO hardcoding obstacle names is rough, make a way to detect them automaticaly
-            self.set_obstacle_pos("obstacle_cylinder", 50, 50, 0)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
@@ -1433,7 +1426,6 @@ class GazeborosEnv(gym.Env):
         # else:
         #     reward -= distance / 7.0
         reward = min(max(reward, -1), 1)
-        # ToDO check for obstacle
         return reward
 
     def save_log(self):
