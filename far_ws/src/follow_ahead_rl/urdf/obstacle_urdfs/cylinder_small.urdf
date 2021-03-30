@@ -7,12 +7,12 @@
     </inertial>
     <visual>
       <geometry>
-        <cylinder radius="0.1875" length="0.1875" />
+        <cylinder radius="0.125" length="0.125" />
       </geometry>
     </visual>
     <collision>
       <geometry>
-        <cylinder radius="0.1875" length="0.1875" />
+        <cylinder radius="0.125" length="0.125" />
       </geometry>
     </collision>
   </link>

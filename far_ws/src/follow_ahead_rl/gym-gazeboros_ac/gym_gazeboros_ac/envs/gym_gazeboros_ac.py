@@ -58,8 +58,16 @@ logger = logging.getLogger(__name__)
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
     USE_TESTING = True
+    
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = False
+    USE_OBSTACLES = True
+
+    # Pattern to init obstacles
+    # 0: Places obstacles between robot and person
+    # 1: Places obstacles randomly within circle
+    OBSTACLE_MODE = 0
+
+    OBSTACLE_SIZE = 0.5
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -518,6 +526,7 @@ class GazeborosEnv(gym.Env):
         self.use_reachability = False
 
         self.use_obstacles = EnvConfig.USE_OBSTACLES
+        self.obstacle_mode = EnvConfig.OBSTACLE_MODE
         self.obstacle_names = []
 
         self.path_follower_current_setting_idx = 0
@@ -532,7 +541,6 @@ class GazeborosEnv(gym.Env):
             self.use_noise = False
             self.use_reverse = False
             self.is_use_test_setting = True
-
 
         self.fallen = False
         self.is_max_distance = False
@@ -808,18 +816,60 @@ class GazeborosEnv(gym.Env):
         rospy.wait_for_service('/gazebo/set_model_state')
         self.set_model_state_sp(set_model_msg)
 
-    def set_obstacle_pos(self):
-        # TODO: obstacle position setting algorithm
-        #   1: Put in some place between the two robots
-        #   2: Random within circle
-        x = 0.5
-        y = 0.5
-        orientation = 0
+    def get_obstacle_init_pos(self, init_pos_robot, init_pos_person):
+        num_obstacles = len(self.obstacle_names)
         
-        for obstacle in self.obstacle_names:
-            obstacle_pose = {"pos": (x,y), "orientation":orientation}
-            self.set_pos(obstacle, obstacle_pose)
+        out_of_the_way_pose = {"pos": (15,15), "orientation":0}
 
+        if not self.use_obstacles:
+            return [out_of_the_way_pose for i in range(num_obstacles)]
+        elif self.obstacle_mode == 0:
+            # Place obstacles between robot and person
+
+            # Calculate distance between robots, subtract some buffer room
+            x_range = abs(init_pos_robot["pos"][0] - init_pos_person["pos"][0]) - EnvConfig.OBSTACLE_SIZE
+            y_range = abs(init_pos_robot["pos"][1] - init_pos_person["pos"][1]) - EnvConfig.OBSTACLE_SIZE
+
+            # Check if we have enough space for obstacles between robots
+            x_buffer_space = y_buffer_space = -1
+            num_obs_to_place = num_obstacles + 1
+            while x_buffer_space < 0 and y_buffer_space < 0:
+                num_obs_to_place -= 1
+                x_buffer_space = x_range - (EnvConfig.OBSTACLE_SIZE * num_obs_to_place)
+                y_buffer_space = y_range - ((EnvConfig.OBSTACLE_SIZE * num_obs_to_place))
+            
+            if num_obs_to_place == 0:
+                # No space for obstacles so put them away
+                rospy.logwarn("Not enough space for obstacles between robots.")
+                return [out_of_the_way_pose for i in range(num_obstacles)]
+
+            x_spacing = x_range / num_obs_to_place
+            y_spacing = y_range / num_obs_to_place
+
+            if init_pos_robot["pos"][0] < init_pos_person["pos"][0]:
+                base_x = init_pos_robot["pos"][0]
+            else:
+                base_x = init_pos_person["pos"][0]
+            
+            if init_pos_robot["pos"][1] < init_pos_person["pos"][1]:
+                base_y = init_pos_robot["pos"][1]
+            else:
+                base_y = init_pos_person["pos"][1]
+
+            obstacle_positions = []
+            for i in range(num_obs_to_place):
+                base_x += x_spacing
+                base_y += y_spacing
+                obstacle_positions.append({"pos": (base_x, base_y), "orientation":0})
+            obstacle_positions.extend([out_of_the_way_pose for i in range(num_obstacles - num_obs_to_place)])
+
+            return obstacle_positions
+
+    def set_obstacle_pos(self, init_pos_robot, init_pos_person):
+        obs_positions = self.get_obstacle_init_pos(init_pos_robot, init_pos_person)        
+        for obs_idx in range(len(self.obstacle_names)):
+            self.set_pos(self.obstacle_names[obs_idx], obs_positions[obs_idx])
+        
     def init_simulator(self):
 
         self.number_of_steps = 0
@@ -843,9 +893,15 @@ class GazeborosEnv(gym.Env):
         #     self.prev_action = (0,0, 0)
         # else:
         self.prev_action = (0,0)
+
+        # Override TESTING ONLY
+        # init_pos_person = {"pos": (-5, -3), "orientation": 0}
+        # init_pos_robot = {"pos": (-4, 4), "orientation": 0}
+
+        # Set positions of robots and obstacles
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
-        self.set_obstacle_pos()
+        self.set_obstacle_pos(init_pos_robot, init_pos_person)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
@@ -1268,7 +1324,6 @@ class GazeborosEnv(gym.Env):
         pos_person = self.person.get_pos()
         pos_relative = GazeborosEnv.get_relative_position(pos, self.robot.relative)
         pos_person_relative = GazeborosEnv.get_relative_position(pos_person, self.robot.relative)
-        print (f"pos pos_person pos_relative [pos], [pos_person] [pos_relative]")
         pos_norm = GazeborosEnv.normalize(pos_relative, self.robot.max_rel_pos_range)
         orientation = GazeborosEnv.normalize(math.atan2(pos_relative[1] - pos_person_relative[1], pos_relative[0] - pos_person_relative[0]), math.pi)
         return np.asarray((pos_norm[0], pos_norm[1], orientation))
