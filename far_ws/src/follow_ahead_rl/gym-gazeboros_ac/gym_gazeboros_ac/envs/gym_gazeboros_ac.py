@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
-    USE_TESTING = True
+    USE_TESTING = False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = True
@@ -65,8 +65,12 @@ class EnvConfig:
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
     # 1: Places obstacles randomly within circle
-    OBSTACLE_MODE = 0
+    OBSTACLE_MODE = 1
 
+    # Radius for random placement of objects
+    OBSTACLE_RADIUS_AWAY = 3
+
+    # Obstacle size
     OBSTACLE_SIZE = 0.5
 
 class History():
@@ -856,6 +860,7 @@ class GazeborosEnv(gym.Env):
             else:
                 base_y = init_pos_person["pos"][1]
 
+            # Place obstacles on line between robot and person
             obstacle_positions = []
             for i in range(num_obs_to_place):
                 base_x += x_spacing
@@ -864,6 +869,32 @@ class GazeborosEnv(gym.Env):
             obstacle_positions.extend([out_of_the_way_pose for i in range(num_obstacles - num_obs_to_place)])
 
             return obstacle_positions
+        
+        elif self.obstacle_mode == 1:
+            # Put obstacles randomly within area
+            obstacle_radius = EnvConfig.OBSTACLE_RADIUS_AWAY
+            min_distance_away_from_robot = EnvConfig.OBSTACLE_SIZE
+
+            obstacle_positions = []
+            for obs_idx in range(num_obstacles):
+                random_point = self.find_random_point_in_circle(obstacle_radius, min_distance_away_from_robot, init_pos_robot["pos"])
+                
+                random_point = self.prevent_overlap(init_pos_person["pos"], random_point, min_distance_away_from_robot)
+
+                obstacle_positions.append({"pos": random_point, "orientation":0})
+            return obstacle_positions
+
+    # Prevent point b from overlapping point a
+    def prevent_overlap(self, point_a, point_b, min_distance):
+        x = point_b[0]
+        y = point_b[1]
+
+        if abs(point_b[0] - point_a[0]) < min_distance:
+            x += min_distance
+        if abs(point_b[1] - point_a[1]) < min_distance:
+            y += min_distance
+        
+        return (x, y)
 
     def set_obstacle_pos(self, init_pos_robot, init_pos_person):
         obs_positions = self.get_obstacle_init_pos(init_pos_robot, init_pos_person)        
