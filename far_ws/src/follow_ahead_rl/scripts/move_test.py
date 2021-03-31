@@ -12,7 +12,8 @@ EPISODE_LEN = 20
 # Terminal 2: run `python tf_node.py in old_scripts`
 # Terminal 3: Launch navigation.launch
 # Terminal 4: run this file
-#
+# 
+# * if you have a issue with `tf_node.py`, follow this https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
 # * DON'T FORGET TO SOURCE THE WORKSPACE IN EACH FILE <3
 # ie: cd .../far_ws && source devel/setup.bash
 

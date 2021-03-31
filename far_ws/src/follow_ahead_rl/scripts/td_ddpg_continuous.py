@@ -432,7 +432,7 @@ def main():
     score_history = []
 
     agent.load_models()
-    n_games = 5000#7500
+    n_games = 75000 #5000
     for i in range(n_games):
         observation = env.reset()
         done = False
@@ -448,11 +448,12 @@ def main():
         window = 25
         avg_score = np.mean(score_history[-window:])
 
-        if i % 100 == 0:
+        if i % 200 == 0:
             agent.save_periodic_models(epoch=i)
 
         if avg_score > best_score and i > window:
-	    # print(f'avg_score is greater than best_score, Saving Model')
+	    # print(f'avg_score is greater than best_score... Saving Model')
+            plot(score_history, f'Turtlebot_Continuous_TD_DDPG_games_{n_games}.png')
             best_score = avg_score
             agent.save_models()
 
@@ -465,8 +466,8 @@ def main():
     f.close()
     env.close()
     plot(score_history, f'Turtlebot_Continuous_TD_DDPG_games_{n_games}.png')
-    if n_games >= 1000: # rather than best model
-        agent.save_periodic_models(epoch=n_games)
+    #if n_games >= 1000: # rather than best model
+    agent.save_periodic_models(epoch=n_games)
 
     # a = ppo.choose_action(s)
     # a = [-0.91, -0.91]
