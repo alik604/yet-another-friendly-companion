@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
-    USE_TESTING = False
+    USE_TESTING = True
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = True
@@ -65,7 +65,7 @@ class EnvConfig:
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
     # 1: Places obstacles randomly within circle
-    OBSTACLE_MODE = 1
+    OBSTACLE_MODE = 0
 
     # Radius for random placement of objects
     OBSTACLE_RADIUS_AWAY = 3
@@ -638,18 +638,44 @@ class GazeborosEnv(gym.Env):
 
         with self.lock:
             self.init_simulator()
+    
+    def create_obstacle_msg(self, name, pose):
+        obstacle_msg = ObstacleMsg()
+        obstacle_msg.id = 1
+
+        point = Point32()
+        point.x = pose.position.x
+        point.y = pose.position.y
+        point.z = pose.position.z
+
+        obstacle_msg.polygon.points.append(point)
+
+        obstacle_msg.radius = EnvConfig.OBSTACLE_SIZE/2
+
+        obstacle_msg.orientation.x = pose.orientation.x
+        obstacle_msg.orientation.y = pose.orientation.y
+        obstacle_msg.orientation.z = pose.orientation.z
+        obstacle_msg.orientation.w = pose.orientation.w
+        obstacle_msg.velocities.twist.linear.x = 0
+        obstacle_msg.velocities.twist.angular.z = 0
+        
+        return obstacle_msg
 
     def model_states_cb(self, states_msg):
 
         # Grab Obstacle Names for Agent
-        if not self.obstacle_names:
-            for name in states_msg.name:
-                if "obstacle" in name:
-                    for char in name:
-                        if char.isdigit():
-                            if int(char) == self.agent_num:
-                                self.obstacle_names.append(name)
+        if self.use_obstacles:
+            if not self.obstacle_names:
+                for name in states_msg.name:
+                    if "obstacle" in name:
+                        for char in name:
+                            if char.isdigit():
+                                if int(char) == self.agent_num:
+                                    self.obstacle_names.append(name)
 
+        obstacle_msg_array = ObstacleArrayMsg()
+        obstacle_msg_array.header.stamp = rospy.Time.now()
+        obstacle_msg_array.header.frame_id = "tb3_{}/odom".format(self.agent_num)
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
@@ -657,6 +683,13 @@ class GazeborosEnv(gym.Env):
                     found = True
                     break
             if not found:
+                # TODO refactor
+                if "obstacle" in states_msg.name[model_idx]:
+                    obstacle_msg_array.obstacles.append(
+                        self.create_obstacle_msg(
+                            states_msg.name[model_idx], states_msg.pose[model_idx]
+                        )
+                    )
                 continue
             pos = states_msg.pose[model_idx]
             euler = Quaternion(pos.orientation.w, pos.orientation.x, pos.orientation.y, pos.orientation.z).to_euler()
@@ -677,9 +710,6 @@ class GazeborosEnv(gym.Env):
             state["orientation"] = orientation
             robot.set_state(state)
             if self.use_movebase and robot.name == self.person.name:
-                obstacle_msg_array = ObstacleArrayMsg()
-                obstacle_msg_array.header.stamp = rospy.Time.now()
-                obstacle_msg_array.header.frame_id = "tb3_{}/odom".format(self.agent_num)
                 obstacle_msg = ObstacleMsg()
                 obstacle_msg.header = obstacle_msg_array.header
                 obstacle_msg.id = 0
@@ -697,7 +727,7 @@ class GazeborosEnv(gym.Env):
                 obstacle_msg.velocities.twist.linear.x = twist.linear.x
                 obstacle_msg.velocities.twist.angular.z = twist.linear.z
                 obstacle_msg_array.obstacles.append(obstacle_msg)
-                self.obstacle_pub_.publish(obstacle_msg_array)
+        self.obstacle_pub_.publish(obstacle_msg_array)
 
     def create_robots(self):
 
@@ -831,8 +861,13 @@ class GazeborosEnv(gym.Env):
             # Place obstacles between robot and person
 
             # Calculate distance between robots, subtract some buffer room
-            x_range = abs(init_pos_robot["pos"][0] - init_pos_person["pos"][0]) - EnvConfig.OBSTACLE_SIZE
-            y_range = abs(init_pos_robot["pos"][1] - init_pos_person["pos"][1]) - EnvConfig.OBSTACLE_SIZE
+            x_range = abs(init_pos_robot["pos"][0] - init_pos_person["pos"][0])
+            y_range = abs(init_pos_robot["pos"][1] - init_pos_person["pos"][1])
+
+            if x_range != 0:
+                x_range -= EnvConfig.OBSTACLE_SIZE
+            if y_range != 0:
+                y_range -= EnvConfig.OBSTACLE_SIZE
 
             # Check if we have enough space for obstacles between robots
             x_buffer_space = y_buffer_space = -1

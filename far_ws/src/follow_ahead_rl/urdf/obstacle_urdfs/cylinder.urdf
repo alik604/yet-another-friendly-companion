@@ -1,5 +1,5 @@
 <robot name="simple_cylinder">
-  <link name="cylinder_base">
+  <link name="base_link">
     <inertial>
       <origin xyz="0 0 0" />
       <mass value="1.0" />
@@ -16,7 +16,7 @@
       </geometry>
     </collision>
   </link>
-  <gazebo reference="cylinder_base">
+  <gazebo reference="base_link">
     <material>Gazebo/Red</material>
   </gazebo>
 </robot>
