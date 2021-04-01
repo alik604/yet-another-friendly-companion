@@ -588,6 +588,9 @@ class GazeborosEnv(gym.Env):
             with open('data/reachability.pkl', 'rb') as f:
                 self.reachabilit_value = pickle.load(f)
 
+    def get_person_pos(self):
+        return self.person.get_pos()
+
     def get_test_path_number(self):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
         return self.path_follower_test_settings[self.path_follower_current_setting_idx][2]
@@ -693,7 +696,8 @@ class GazeborosEnv(gym.Env):
                             states_msg.name[model_idx], states_msg.pose[model_idx]
                         )
                     )
-                continue
+                continue                
+
             pos = states_msg.pose[model_idx]
             euler = Quaternion(pos.orientation.w, pos.orientation.x, pos.orientation.y, pos.orientation.z).to_euler()
 

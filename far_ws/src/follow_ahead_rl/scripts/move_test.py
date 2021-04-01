@@ -24,6 +24,9 @@ if __name__ == '__main__':
     while True:
         # env.set_obstacle_pos("obstacle_box",0.5, 0, 0)
         state = env.reset()
+
+        # Prints out x y position of person
+        # print(f"person pose = {env.get_person_pos()}")
         c = 0
         for i in range(EPISODE_LEN):
 
