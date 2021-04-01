@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
-    USE_TESTING = True
+    USE_TESTING = False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = True
@@ -650,6 +650,9 @@ class GazeborosEnv(gym.Env):
 
         obstacle_msg.polygon.points.append(point)
 
+        # TODO probably needs some tweaking but works for regular cyn/box
+        #   - I think the robot could be ok to get closer to the obstacles?
+        # TODO polygon for box instead of using a circle
         obstacle_msg.radius = EnvConfig.OBSTACLE_SIZE/2
 
         obstacle_msg.orientation.x = pose.orientation.x
