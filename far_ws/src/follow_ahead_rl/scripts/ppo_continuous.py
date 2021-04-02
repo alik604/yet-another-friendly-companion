@@ -129,7 +129,6 @@ class PolicyNetwork(nn.Module):
         self.num_actions = num_actions
         self.action_range = action_range
 
-
     def forward(self, state):
         x = F.leaky_relu(self.linear1(state))
         x = F.leaky_relu(self.linear2(x))
@@ -386,7 +385,7 @@ def worker(id, ppo, rewards_queue):
             # env.render()
             a = ppo.choose_action(s)
             s_, r, done, _ = env.step(a)
-            if done and t < 4:
+            if done and t < 4:# TODO maybe no t< 4
                 is_invalid = True
                 break
             buffer['state'].append(s)
@@ -475,7 +474,6 @@ def main():
         processes=[]
         rewards=[]
 
-        print("Starting workers")
         for i in range(NUM_WORKERS):
             process = Process(target=worker, args=(i, ppo, rewards_queue))  # the args contain shared and not shared
             process.daemon=True  # all processes closed when the main stops

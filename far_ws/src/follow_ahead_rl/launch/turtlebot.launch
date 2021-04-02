@@ -14,5 +14,7 @@
 
   <include file="$(find follow_ahead_rl)/launch/spawn_robot.launch"/>
 
+  <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch"/>
+
 </launch>
 
