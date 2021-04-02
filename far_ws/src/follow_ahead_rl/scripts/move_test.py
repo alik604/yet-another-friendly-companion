@@ -27,12 +27,14 @@ if __name__ == '__main__':
 
         # Prints out x y position of person
         # print(f"person pose = {env.get_person_pos()}")
+
         c = 0
         for i in range(EPISODE_LEN):
-
-
             action = [0,0]
             state, reward, done, _ = env.step(action)
+            
+            # Prints out system velocities
+            # print(f"system_velocities = {env.get_system_velocities()}")
             
             sleep(1)
 

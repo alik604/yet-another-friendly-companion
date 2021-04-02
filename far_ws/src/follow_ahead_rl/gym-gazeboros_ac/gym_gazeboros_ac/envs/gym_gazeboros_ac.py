@@ -300,6 +300,8 @@ class Robot():
             self.all_pose_.append(self.state_.copy())
             self.last_time_added = rospy.Time.now().to_sec()
 
+    def get_state(self):
+        return self.state_
 
     def get_velocity(self):
         return self.velocity_history.get_latest()
@@ -590,6 +592,26 @@ class GazeborosEnv(gym.Env):
 
     def get_person_pos(self):
         return self.person.get_pos()
+    
+    def get_system_velocities(self):
+        robot_state = self.robot.get_state()
+        person_state = self.person.get_state()
+
+        robot_lin_velocity = robot_state["velocity"][0]
+        robot_angular_velocity = robot_state["velocity"][1]
+        robot_orientation = robot_state["orientation"]
+
+        person_lin_velocity = person_state["velocity"][0]
+        person_angular_velocity = person_state["velocity"][1]
+
+        x_distance_between = person_state["position"][0] - robot_state["position"][0]
+        y_distance_between = person_state["position"][1] - robot_state["position"][1]
+
+        dx_dt = -person_lin_velocity + robot_lin_velocity * math.cos(robot_orientation) + person_angular_velocity * y_distance_between
+        dy_dt = robot_lin_velocity * math.sin(robot_orientation) - person_angular_velocity * x_distance_between
+        da_dt = robot_angular_velocity - person_angular_velocity
+
+        return (dx_dt, dy_dt, da_dt)
 
     def get_test_path_number(self):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
