@@ -60,7 +60,7 @@ class EnvConfig:
     USE_TESTING = False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = True
+    USE_OBSTACLES = False
 
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
@@ -72,6 +72,9 @@ class EnvConfig:
 
     # Obstacle size
     OBSTACLE_SIZE = 0.5
+
+    # Allows/Denies TEB Local Planner to avoid obstacles
+    SEND_TEB_OBSTACLES = False
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -692,14 +695,13 @@ class GazeborosEnv(gym.Env):
     def model_states_cb(self, states_msg):
 
         # Grab Obstacle Names for Agent
-        if self.use_obstacles:
-            if not self.obstacle_names:
-                for name in states_msg.name:
-                    if "obstacle" in name:
-                        for char in name:
-                            if char.isdigit():
-                                if int(char) == self.agent_num:
-                                    self.obstacle_names.append(name)
+        if not self.obstacle_names:
+            for name in states_msg.name:
+                if "obstacle" in name:
+                    for char in name:
+                        if char.isdigit():
+                            if int(char) == self.agent_num:
+                                self.obstacle_names.append(name)
 
         obstacle_msg_array = ObstacleArrayMsg()
         obstacle_msg_array.header.stamp = rospy.Time.now()
@@ -710,14 +712,13 @@ class GazeborosEnv(gym.Env):
                 if states_msg.name[model_idx] == robot.name:
                     found = True
                     break
-            if not found:
-                # TODO refactor
-                if "obstacle" in states_msg.name[model_idx]:
+                elif "obstacle" in states_msg.name[model_idx] and EnvConfig.SEND_TEB_OBSTACLES:
                     obstacle_msg_array.obstacles.append(
                         self.create_obstacle_msg(
                             states_msg.name[model_idx], states_msg.pose[model_idx]
                         )
                     )
+            if not found:                
                 continue                
 
             pos = states_msg.pose[model_idx]
