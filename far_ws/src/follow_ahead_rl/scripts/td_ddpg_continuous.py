@@ -448,7 +448,7 @@ def main():
         window = 25
         avg_score = np.mean(score_history[-window:])
 
-        if i % 200 == 0:
+        if i % 500 == 0:
             agent.save_periodic_models(epoch=i)
 
         if avg_score > best_score and i > window:

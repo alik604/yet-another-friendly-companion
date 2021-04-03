@@ -620,13 +620,6 @@ class GazeborosEnv(gym.Env):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
         return self.path_follower_test_settings[self.path_follower_current_setting_idx][2]
 
-    def get_obstacle_state(self):
-        return self.obstacle_state
-    
-    def set_use_obstacles(self):
-        self.use_obstacles = True
-        return
-
     def use_test_setting(self):
         self.is_use_test_setting = True
 
@@ -1006,11 +999,6 @@ class GazeborosEnv(gym.Env):
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
         self.set_obstacle_pos(init_pos_robot, init_pos_person)
-
-        # Move obstacle out of the way if we're not using it
-        if not self.use_obstacles:
-            # TODO hardcoding obstacle names is rough, make a way to detect them automaticaly
-            self.set_obstacle_pos("obstacle_cylinder", 50, 50, 0)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
