@@ -2,7 +2,6 @@ import math
 import random
 
 import gym
-# from gym_gazeboros_ac import gym_gazeboros_ac
 import gym_gazeboros_ac
 import numpy as np
 from logger import logger
