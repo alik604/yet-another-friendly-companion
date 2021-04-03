@@ -4,7 +4,7 @@
   <node name="spawn_sdf0" pkg="gazebo_ros" type="spawn_model" args="-sdf -model floor1 -x 0 -y 0 -z 0 -Y 0 -file $(arg floor)" />
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
-    <arg name="world_name" value="$(find follow_ahead_rl)/worlds/empty.world"/>
+    <arg name="world_name" value="$(find follow_ahead_rl)/worlds/cokecan.world"/>
     <arg name="paused" value="false"/>
     <arg name="use_sim_time" value="true"/>
     <arg name="gui" value="true"/>
@@ -13,8 +13,6 @@
   </include>
 
   <include file="$(find follow_ahead_rl)/launch/spawn_robot.launch"/>
-
-  <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch"/>
 
 </launch>
 

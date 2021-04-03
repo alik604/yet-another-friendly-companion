@@ -21,20 +21,31 @@ if __name__ == '__main__':
     env = gym.make(ENV_NAME).unwrapped
     env.set_agent(0)
 
+    env1 = gym.make(ENV_NAME).unwrapped
+    env1.set_agent(1)
+    
+    env2 = gym.make(ENV_NAME).unwrapped
+    env2.set_agent(2)
+
+    env3 = gym.make(ENV_NAME).unwrapped
+    env3.set_agent(3)
+
     while True:
         # env.set_obstacle_pos("obstacle_box",0.5, 0, 0)
         state = env.reset()
-
-        # Prints out x y position of person
-        # print(f"person pose = {env.get_person_pos()}")
+        state = env1.reset()
+        state = env2.reset()
+        state = env3.reset()
 
         c = 0
         for i in range(EPISODE_LEN):
+
+
             action = [0,0]
             state, reward, done, _ = env.step(action)
-            
-            # Prints out system velocities
-            # print(f"system_velocities = {env.get_system_velocities()}")
+            state, reward, done, _ = env1.step(action)
+            state, reward, done, _ = env2.step(action)
+            state, reward, done, _ = env3.step(action)
             
             sleep(1)
 
@@ -44,4 +55,3 @@ if __name__ == '__main__':
             c += 1
     
     print("END")
-# * if you have a issue with `tf_node.py`, follow this https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
