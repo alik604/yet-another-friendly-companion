@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
-    USE_TESTING = True # False
+    USE_TESTING = False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = False
@@ -723,7 +723,7 @@ class GazeborosEnv(gym.Env):
 
             orientation = euler[0]
             fall_angle = np.deg2rad(90)
-            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1:
+            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1: # TODO consider relaxing constraint from 0.1. 
                 self.fallen = True
             # get velocity
             twist = states_msg.twist[model_idx]
@@ -1531,7 +1531,7 @@ class GazeborosEnv(gym.Env):
             rospy.loginfo('fallen')
         reward = min(max(reward, -1), 1)
         if self.agent_num == 0:
-            rospy.loginfo("action {} reward {}".format(action, reward))
+            rospy.loginfo("action {} reward {}".format(action, reward)) # TODO consider suppressing this log
         if episode_over:
             self.person.reset = True
         #reward += 1
