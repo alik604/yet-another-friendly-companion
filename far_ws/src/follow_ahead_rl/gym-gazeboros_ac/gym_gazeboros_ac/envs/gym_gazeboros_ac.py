@@ -38,26 +38,22 @@ from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Twist
 
 from gazebo_msgs.srv import SetModelState
-
-import threading
-
 from gym.utils import seeding
+import threading
 
 import _thread
 
 from squaternion import Quaternion
-
 from simple_pid import PID
 
 import pickle
-
 import logging
 
 logger = logging.getLogger(__name__)
 
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
-    USE_TESTING = False
+    USE_TESTING = True # False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
     USE_OBSTACLES = False
@@ -480,20 +476,20 @@ class Robot():
 
         return self.goal
 
+    # Ali: This is a duplicate function. time.sleep(0.01) vs time.sleep(0.001)
+    # def get_pos(self):
+    #     counter_problem = 0
+    #     while self.state_['position'] is None:
+    #         if self.reset:
+    #             return (None, None)
+    #         if counter_problem > 20:
+    #             rospy.logwarn("waiting for pos to be available {}/{}".format(counter_problem/10, 20))
+    #         time.sleep(0.01)
+    #         counter_problem += 1
+    #         if counter_problem > 200:
+    #             raise Exception('Probable shared memory issue happend')
 
-    def get_pos(self):
-        counter_problem = 0
-        while self.state_['position'] is None:
-            if self.reset:
-                return (None, None)
-            if counter_problem > 20:
-                rospy.logwarn("waiting for pos to be available {}/{}".format(counter_problem/10, 20))
-            time.sleep(0.01)
-            counter_problem += 1
-            if counter_problem > 200:
-                raise Exception('Probable shared memory issue happend')
-
-        return self.state_['position']
+    #     return self.state_['position']
 
     def get_laser_image(self):
         return np.expand_dims(self.scan_image, axis=2)
@@ -1620,12 +1616,12 @@ class GazeborosEnv(gym.Env):
                         self.log_file.close()
 
                     self.path_idx += 1
-                    print ("start path_id: {}".format(self.path_idx))
+                    print("start path_id: {}".format(self.path_idx))
                     if self.path_idx < len(self.paths)-1:
                         self.path = self.paths[self.path_idx]
                         self.log_file = open(self.path["name"], "wb")
                     else:
-                        print ("all done")
+                        print("all done")
                         self.person.stop_robot()
                         exit(0)
                 self.init_simulator()
@@ -1702,7 +1698,7 @@ class GazeborosEnv(gym.Env):
     def reachability_action(self):
         relative = GazeborosEnv.get_relative_position(self.robot.get_pos(), self.person)
         orientation = GazeborosEnv.wrap_pi_to_pi(self.robot.get_orientation() - self.person.get_orientation())
-        print (np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
+        print(np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
         velocity = self.robot.get_velocity()[0]
         derivative_v, derivative_theta, v = self.calculate_rechability_derivite(relative[0], relative[1], velocity, orientation)
         rospy.loginfo("d_v: {:0.5f} W: {:0.5f} v {:0.1f}".format(derivative_v, derivative_theta, v))
