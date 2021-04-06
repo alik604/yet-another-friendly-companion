@@ -622,6 +622,9 @@ class GazeborosEnv(gym.Env):
 
     def use_test_setting(self):
         self.is_use_test_setting = True
+    
+    def set_use_obstacles(self, setting):
+        self.use_obstacles = setting
 
     def set_agent(self, agent_num):
         try:
