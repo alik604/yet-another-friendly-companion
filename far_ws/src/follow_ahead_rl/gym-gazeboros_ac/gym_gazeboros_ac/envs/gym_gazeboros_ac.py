@@ -476,21 +476,6 @@ class Robot():
 
         return self.goal
 
-    # Ali: This is a duplicate function. time.sleep(0.01) vs time.sleep(0.001)
-    # def get_pos(self):
-    #     counter_problem = 0
-    #     while self.state_['position'] is None:
-    #         if self.reset:
-    #             return (None, None)
-    #         if counter_problem > 20:
-    #             rospy.logwarn("waiting for pos to be available {}/{}".format(counter_problem/10, 20))
-    #         time.sleep(0.01)
-    #         counter_problem += 1
-    #         if counter_problem > 200:
-    #             raise Exception('Probable shared memory issue happend')
-
-    #     return self.state_['position']
-
     def get_laser_image(self):
         return np.expand_dims(self.scan_image, axis=2)
 
