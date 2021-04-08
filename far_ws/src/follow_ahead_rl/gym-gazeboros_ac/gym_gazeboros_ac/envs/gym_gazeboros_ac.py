@@ -60,7 +60,7 @@ class EnvConfig:
     USE_TESTING = False
     
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = False
+    USE_OBSTACLES = True
 
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
@@ -74,7 +74,7 @@ class EnvConfig:
     OBSTACLE_SIZE = 0.5
 
     # Allows/Denies Robot TEB Local Planner to avoid obstacles
-    SEND_TEB_OBSTACLES = False
+    SEND_TEB_OBSTACLES = True
 
     # Gets person robot to use move base
     PERSON_USE_MB = True
@@ -639,7 +639,8 @@ class GazeborosEnv(gym.Env):
         self.set_model_state_sp = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
         date_time = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
         self.agent_num = agent_num
-        self.obstacle_pub_ =  rospy.Publisher('/move_base_node_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
+        self.obstacle_pub_ =  rospy.Publisher('/move_base_node_tb3_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
+        self.person_obstacle_pub_ =  rospy.Publisher('/move_base_node_person_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
         self.create_robots()
 
         self.path = {}
@@ -713,6 +714,11 @@ class GazeborosEnv(gym.Env):
         obstacle_msg_array = ObstacleArrayMsg()
         obstacle_msg_array.header.stamp = rospy.Time.now()
         obstacle_msg_array.header.frame_id = "tb3_{}/odom".format(self.agent_num)
+
+        person_obs_msg_array = ObstacleArrayMsg()
+        person_obs_msg_array.header.stamp = rospy.Time.now()
+        person_obs_msg_array.header.frame_id = "person_{}/odom".format(self.agent_num)
+
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
@@ -721,6 +727,11 @@ class GazeborosEnv(gym.Env):
                     break
                 elif "obstacle" in states_msg.name[model_idx] and EnvConfig.SEND_TEB_OBSTACLES:
                     obstacle_msg_array.obstacles.append(
+                        self.create_obstacle_msg(
+                            states_msg.name[model_idx], states_msg.pose[model_idx]
+                        )
+                    )
+                    person_obs_msg_array.obstacles.append(
                         self.create_obstacle_msg(
                             states_msg.name[model_idx], states_msg.pose[model_idx]
                         )
@@ -746,9 +757,8 @@ class GazeborosEnv(gym.Env):
             state["position"] = (pos_x, pos_y)
             state["orientation"] = orientation
             robot.set_state(state)
-            if self.use_movebase and robot.name == self.person.name:
+            if self.use_movebase:
                 obstacle_msg = ObstacleMsg()
-                obstacle_msg.header = obstacle_msg_array.header
                 obstacle_msg.id = 0
                 for x in range (5):
                     for y in range (5):
@@ -763,8 +773,15 @@ class GazeborosEnv(gym.Env):
                 obstacle_msg.orientation.w = pos.orientation.w
                 obstacle_msg.velocities.twist.linear.x = twist.linear.x
                 obstacle_msg.velocities.twist.angular.z = twist.linear.z
-                obstacle_msg_array.obstacles.append(obstacle_msg)
+                
+                if robot.name == self.person.name:
+                    obstacle_msg.header = obstacle_msg_array.header
+                    obstacle_msg_array.obstacles.append(obstacle_msg)
+                else:
+                    obstacle_msg.header = person_obs_msg_array.header
+                    person_obs_msg_array.obstacles.append(obstacle_msg)
         self.obstacle_pub_.publish(obstacle_msg_array)
+        self.person_obstacle_pub_.publish(person_obs_msg_array)
 
     def create_robots(self):
 
@@ -995,9 +1012,9 @@ class GazeborosEnv(gym.Env):
         # else:
         self.prev_action = (0,0)
 
-        # Override TESTING ONLY
-        # init_pos_person = {"pos": (-5, -3), "orientation": 0}
-        # init_pos_robot = {"pos": (-4, 4), "orientation": 0}
+        # TODO: Override TESTING ONLY
+        # init_pos_person = {"pos": (0, 0), "orientation": 0}
+        # init_pos_robot = {"pos": (15,0), "orientation": 0}
 
         # Set positions of robots and obstacles
         self.set_pos(self.robot.name, init_pos_robot)
@@ -1008,12 +1025,16 @@ class GazeborosEnv(gym.Env):
         self.person.update(init_pos_person)
 
         self.path_finished = False
+        
+        if self.person_use_move_base:
+            self.person.movebase_cancel_goals()
+            self.person.take_action([2,0])
+        else:
+            self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
+            self.position_thread.daemon = True
+            self.is_reseting = False
+            self.position_thread.start()
 
-        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
-        self.position_thread.daemon = True
-
-        self.is_reseting = False
-        self.position_thread.start()
         self.wait_observation_ = 0
 
         self.is_reseting = False
@@ -1168,11 +1189,10 @@ class GazeborosEnv(gym.Env):
         1: robot will try to go to a point after person
     """
     def path_follower(self, idx_start, robot):
+        # if self.person_use_move_base:
+        #     self.person.take_action([2,0])
 
-        if self.person_use_move_base:
-            self.person.take_action([2,2])
-
-            return
+            # return
 
         counter = 0
         while self.is_pause:
@@ -1509,6 +1529,7 @@ class GazeborosEnv(gym.Env):
         self.take_action(action)
         # instead of one reward get all the reward during wait
         # rospy.sleep(0.4)
+
         sleep_time = 0.10
         rewards = []
         if sleep_time > 0.1:
