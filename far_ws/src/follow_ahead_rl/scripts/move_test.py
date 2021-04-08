@@ -44,3 +44,4 @@ if __name__ == '__main__':
             c += 1
     
     print("END")
+# * if you have a issue with `tf_node.py`, follow this https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
