@@ -18,16 +18,265 @@ import pandas as pd
 from cma import CMAEvolutionStrategy
 
 
+device = pt.device('cuda' if pt.cuda.is_available() else 'cpu')
 ###############################  hyper parameters  #########################
-
-
 #ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
 ENV_NAME = 'LunarLander-v2'
 
 RANDOMSEED = 42  # random seed
  
 ############################################################################
+#TODO:
+#Create the Convolutional Variational Autoencoder (VAE) and encode it into a latent vector -> check if this needs to be done given we are workign with gym -> checked and it looks like we dont need to use this because we arent working with image data
+#Create a memory model which is a RNN -> with latent density network -> LSTM  
+#Create a controller, singl layer linear model which maps the vision modules observation z and memory modiles hidden state h to an action at each time step. OUTPUT: will be an action vector telling us what action to take next
 
+
+
+######### these classes are required for WORLD MODEL ####################
+
+class WorldModel(nn.Module):
+  #CREATE A MEMORY MODEL WHICH IS A RNN WITH LSTM
+  def __init__(self, obs_dim, act_dim, hid_dim=64):
+    super(WorldModel, self).__init__()
+    self.obs_dim = obs_dim
+    self.act_dim = act_dim 
+    self.hid_dim = hid_dim
+
+    self.lstm = nn.LSTMCell(obs_dim+act_dim, hid_dim)
+    self.mu = nn.Linear(hid_dim, obs_dim)
+    self.logsigma = nn.Linear(hid_dim, obs_dim)
+
+  def forward(self, obs, act, hid):
+    x = pt.cat([obs, act], dim=-1)
+    h, c = self.lstm(x, hid)
+    mu = self.mu(h)
+    sigma = pt.exp(self.logsigma(h))
+    return mu, sigma, (h, c)
+
+#ctrl = Controller(obs_dim+rnn.hid_dim, act_dim) # we get our controller
+# #controller takes an vae and rnn initial state 
+
+'''
+class Phenotype(nn.Module):
+  @property
+  def genotype(self):
+    print("we are in genotype function?")
+    params = [p.detach().view(-1) for p in self.parameters()]
+    return pt.cat(params, dim=0).cpu().numpy()
+
+  def load_genotype(self, params):
+    start = 0
+    for p in self.parameters():
+      end = start + p.numel()
+      new_p = pt.from_numpy(params[start:end])
+      p.data.copy_(new_p.view(p.shape).to(p.device))
+      start = end
+'''
+class Controller(nn.Linear, nn.Module):
+  def forward(self, obs, h):
+    print("we are in controller class?")
+    state = pt.cat([obs, h], dim=-1)
+    return pt.tanh(super().forward(state))
+
+  def genotype(self):
+      print(self.parameters())
+      print("we are in genotype function?")
+      params = [p.detach().view(-1) for p in self.parameters()]
+      return pt.cat(params, dim=0).cpu().numpy()
+
+  def load_genotype(self, params):
+    start = 0
+    for p in self.parameters():
+      end = start + p.numel()
+      new_p = pt.from_numpy(params[start:end])
+      p.data.copy_(new_p.view(p.shape).to(p.device))
+      start = end
+
+
+def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filename='ha_rnn.pt', logger=None):
+  rnn = rnn.train().to(device)
+
+  batch_size = pop.popsize
+  num_batch = num_rollouts // batch_size
+
+  batch_pbar = tqdm(range(num_batch))
+  for i in batch_pbar:
+    # sample rollout data
+    print("here about to rollout")
+    (obs_batch, act_batch), success = pop.rollout(random_policy)
+    print("we did the rollout")
+
+    obs_batch = obs_batch.to(device)
+    act_batch = act_batch.to(device)
+
+    obs_batch, next_obs_batch = obs_batch[:-1], obs_batch[1:]
+    hid = (pt.zeros(batch_size, rnn.hid_dim).to(device),pt.zeros(batch_size, rnn.hid_dim).to(device))
+    rnn.zero_grad()
+
+    # compute NLL loss
+    loss = 0.0
+    for obs, act, next_obs in zip(obs_batch, act_batch, next_obs_batch):
+      mu, sigma, hid = rnn(obs, act, hid)
+      dist = distributions.Normal(loc=mu, scale=sigma)
+      nll = -dist.log_prob(next_obs) # negative log-likelihood
+      nll = pt.mean(nll, dim=-1)     # mean over dimensions
+      nll = pt.mean(nll, dim=0)      # mean over batch
+      loss += nll
+    loss = loss / len(act_batch)     # mean over trajectory
+    val = loss.item()
+    batch_pbar.set_description('loss= ' + str(val))
+
+    # update RNN
+    loss.backward()
+    optimizer.step()
+
+    if logger is not None:
+      logger.push(loss.item())
+
+  pt.save(rnn.state_dict(), filename)
+
+  
+class Population:
+  def __init__(self, num_workers, agents_per_worker):
+    self.num_workers = num_workers
+    self.agents_per_worker = agents_per_worker
+    self.popsize = num_workers * agents_per_worker
+
+    self.pipes = []
+    self.procs = []
+    for rank in range(num_workers):
+      parent_pipe, child_pipe = mp.Pipe()
+      proc = mp.Process(target=self.worker,
+                        name='Worker-' + str(rank), 
+                        args=(rank, child_pipe, parent_pipe))
+      self.pipes.append(parent_pipe)
+      self.procs.append(proc)
+      proc.daemon = True
+      proc.start()
+      child_pipe.close()
+
+  def worker(self, rank, pipe, parent_pipe):
+    parent_pipe.close()
+    print("here in worker")
+    rng = np.random.RandomState(rank)
+
+    #env = BipedalWalker()
+    #env = gym.make(ENV_NAME).unwrapped
+    env = gym.make(ENV_NAME)
+    obs_dim = env.observation_space.shape[0]
+    act_dim = env.action_space.n
+
+    rnn = WorldModel(obs_dim, act_dim)
+    ctrls = [Controller(obs_dim+rnn.hid_dim, act_dim) for _ in range(self.agents_per_worker)]
+  
+    while True:
+      command, data = pipe.recv()
+      print("the command given is:", command)
+
+      if command == 'upload_rnn': # data: rnn
+        rnn.load_state_dict(data.state_dict())
+        pipe.send((None, True))
+
+      elif command == 'upload_ctrl': # data: ([inds], noisy)
+        inds, noisy = data
+        for ctrl, ind in zip(ctrls, inds):
+          if noisy:
+            ind += rng.normal(scale=1e-3, size=ind.shape)
+          ctrl.load_genotype(ind)
+        pipe.send((None, True))
+
+      elif command == 'rollout': # data: random_policy
+        rollouts = []
+        for ctrl in ctrls:
+          env.seed(rng.randint(2**31-1))
+          if data: # if rollout with random policy
+            trajectory = random_rollout(env)
+          else:
+            trajectory = rollout(env, rnn, ctrl)
+          rollouts.append(trajectory)
+        pipe.send((rollouts, True))
+
+      elif command == 'evaluate': # data: None
+        evaluations = []
+        for ctrl in ctrls:
+          env.seed(rng.randint(2**31-1))
+          evaluations.append(evaluate(env, rnn, ctrl))
+        pipe.send((evaluations, True))
+
+      elif command == 'close': # data: None
+        env.close()
+        pipe.send((None, True))
+        return True
+
+    return False
+
+  def upload_rnn(self, rnn):
+    for p in self.pipes:
+      p.send(('upload_rnn', rnn))
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+  def upload_ctrl(self, ctrl, noisy=False):
+    if isinstance(ctrl, np.ndarray):
+      for p in self.pipes:
+        inds = [np.copy(ctrl) for _ in range(self.agents_per_worker)]
+        p.send(('upload_ctrl', (inds, noisy)))
+    elif isinstance(ctrl, list):
+      start = 0
+      for p in self.pipes:
+        end = start + self.agents_per_worker
+        inds = [np.copy(c) for c in ctrl[start:end]]
+        p.send(('upload_ctrl', (inds, noisy)))
+        start = end
+    else:
+      return False
+
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+  def rollout(self, random_policy):
+    for p in self.pipes:
+      p.send(('rollout', random_policy))
+
+    rollouts = []
+    all_success = True
+    for rollout, success in [p.recv() for p in self.pipes]:
+      print("here")
+      rollouts.extend(rollout)
+      all_success = all_success and success 
+
+    obs_batch = []
+    act_batch = []
+    for obs, act in rollouts:
+      obs_batch.append(obs)
+      act_batch.append(act)
+
+    # (seq_len, batch_size, dim)
+    obs_batch = pt.from_numpy(np.stack(obs_batch, axis=1))
+    act_batch = pt.from_numpy(np.stack(act_batch, axis=1))
+    return (obs_batch, act_batch)
+
+  def evaluate(self):
+    for p in self.pipes:
+      p.send(('evaluate', None))
+
+    fits = []
+    all_success = True
+    for fit, success in [p.recv() for p in self.pipes]:
+      fits.extend(fit)
+      all_success = all_success and success
+
+    return fits, all_success
+
+  def close(self):
+    for p in self.pipes:
+      p.send(('close', None))
+    _, success = zip(*[p.recv() for p in self.pipes])
+    return all(success)
+
+    #
+######### note sure about these classes/functions #####################
 class EvolutionStrategy:
   # Wrapper for CMAEvolutionStrategy
   def __init__(self, mu, sigma, popsize, weight_decay=0.01):
@@ -57,87 +306,18 @@ class EvolutionStrategy:
     self.es.tell(self.solutions, reward_table.tolist())
 
 
-class WorldModel(nn.Module):
-  def __init__(self, obs_dim, act_dim, hid_dim=64):
-    super(WorldModel, self).__init__()
-    self.obs_dim = obs_dim
-    self.act_dim = act_dim 
-    self.hid_dim = hid_dim
 
-    self.lstm = nn.LSTMCell(obs_dim+act_dim, hid_dim)
-    self.mu = nn.Linear(hid_dim, obs_dim)
-    self.logsigma = nn.Linear(hid_dim, obs_dim)
 
-  def forward(self, obs, act, hid):
-    x = pt.cat([obs, act], dim=-1)
-    h, c = self.lstm(x, hid)
-    mu = self.mu(h)
-    sigma = pt.exp(self.logsigma(h))
-    return mu, sigma, (h, c)
 
-class Phenotype(nn.Module):
-  @property
-  def genotype(self):
-    params = [p.detach().view(-1) for p in self.parameters()]
-    return pt.cat(params, dim=0).cpu().numpy()
 
-  def load_genotype(self, params):
-    start = 0
-    for p in self.parameters():
-      end = start + p.numel()
-      new_p = pt.from_numpy(params[start:end])
-      p.data.copy_(new_p.view(p.shape).to(p.device))
-      start = end
 
-class Controller(Phenotype, nn.Linear):
-  def forward(self, obs, h):
-    state = pt.cat([obs, h], dim=-1)
-    return pt.tanh(super().forward(state))
 
-device = pt.device('cuda' if pt.cuda.is_available() else 'cpu')
 
-def train_rnn(rnn, optimizer, pop, random_policy=False, 
-    num_rollouts=1000, filename='ha_rnn.pt', logger=None):
-  rnn = rnn.train().to(device)
 
-  batch_size = pop.popsize
-  num_batch = num_rollouts // batch_size
 
-  batch_pbar = tqdm(range(num_batch))
-  for i in batch_pbar:
-    # sample rollout data
-    (obs_batch, act_batch), success = pop.rollout(random_policy)
-    assert success
 
-    obs_batch = obs_batch.to(device)
-    act_batch = act_batch.to(device)
 
-    obs_batch, next_obs_batch = obs_batch[:-1], obs_batch[1:]
-    hid = (pt.zeros(batch_size, rnn.hid_dim).to(device),
-           pt.zeros(batch_size, rnn.hid_dim).to(device))
-    rnn.zero_grad()
 
-    # compute NLL loss
-    loss = 0.0
-    for obs, act, next_obs in zip(obs_batch, act_batch, next_obs_batch):
-      mu, sigma, hid = rnn(obs, act, hid)
-      dist = distributions.Normal(loc=mu, scale=sigma)
-      nll = -dist.log_prob(next_obs) # negative log-likelihood
-      nll = pt.mean(nll, dim=-1)     # mean over dimensions
-      nll = pt.mean(nll, dim=0)      # mean over batch
-      loss += nll
-    loss = loss / len(act_batch)     # mean over trajectory
-    val = loss.item()
-    batch_pbar.set_description('loss= ' + str(val))
-
-    # update RNN
-    loss.backward()
-    optimizer.step()
-
-    if logger is not None:
-      logger.push(loss.item())
-
-  pt.save(rnn.state_dict(), filename)
 
 def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
   best_sol = None
@@ -241,145 +421,7 @@ def evaluate(env, rnn, ctrl, num_episodes=5, max_episode_steps=1600):
 
   return fitness / num_episodes
 
-class Population:
-  def __init__(self, num_workers, agents_per_worker):
-    self.num_workers = num_workers
-    self.agents_per_worker = agents_per_worker
-    self.popsize = num_workers * agents_per_worker
 
-    self.pipes = []
-    self.procs = []
-    for rank in range(num_workers):
-      parent_pipe, child_pipe = mp.Pipe()
-      proc = mp.Process(target=self.worker,
-                        name='Worker-' + str(rank), 
-                        args=(rank, child_pipe, parent_pipe))
-      self.pipes.append(parent_pipe)
-      self.procs.append(proc)
-      proc.daemon = True
-      proc.start()
-      child_pipe.close()
-
-  def worker(self, rank, pipe, parent_pipe):
-    parent_pipe.close()
-
-    rng = np.random.RandomState(rank)
-
-    #env = BipedalWalker()
-    #env = gym.make(ENV_NAME).unwrapped
-    env = gym.make(ENV_NAME)
-    obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.n
-
-    rnn = WorldModel(obs_dim, act_dim)
-    ctrls = [Controller(obs_dim+rnn.hid_dim, act_dim)
-             for _ in range(self.agents_per_worker)]
-  
-    while True:
-      command, data = pipe.recv()
-
-      if command == 'upload_rnn': # data: rnn
-        rnn.load_state_dict(data.state_dict())
-        pipe.send((None, True))
-
-      elif command == 'upload_ctrl': # data: ([inds], noisy)
-        inds, noisy = data
-        for ctrl, ind in zip(ctrls, inds):
-          if noisy:
-            ind += rng.normal(scale=1e-3, size=ind.shape)
-          ctrl.load_genotype(ind)
-        pipe.send((None, True))
-
-      elif command == 'rollout': # data: random_policy
-        rollouts = []
-        for ctrl in ctrls:
-          env.seed(rng.randint(2**31-1))
-          if data: # if rollout with random policy
-            trajectory = random_rollout(env)
-          else:
-            trajectory = rollout(env, rnn, ctrl)
-          rollouts.append(trajectory)
-        pipe.send((rollouts, True))
-
-      elif command == 'evaluate': # data: None
-        evaluations = []
-        for ctrl in ctrls:
-          env.seed(rng.randint(2**31-1))
-          evaluations.append(evaluate(env, rnn, ctrl))
-        pipe.send((evaluations, True))
-
-      elif command == 'close': # data: None
-        env.close()
-        pipe.send((None, True))
-        return True
-
-    return False
-
-  def upload_rnn(self, rnn):
-    for p in self.pipes:
-      p.send(('upload_rnn', rnn))
-    _, success = zip(*[p.recv() for p in self.pipes])
-    return all(success)
-
-  def upload_ctrl(self, ctrl, noisy=False):
-    if isinstance(ctrl, np.ndarray):
-      for p in self.pipes:
-        inds = [np.copy(ctrl) for _ in range(self.agents_per_worker)]
-        p.send(('upload_ctrl', (inds, noisy)))
-    elif isinstance(ctrl, list):
-      start = 0
-      for p in self.pipes:
-        end = start + self.agents_per_worker
-        inds = [np.copy(c) for c in ctrl[start:end]]
-        p.send(('upload_ctrl', (inds, noisy)))
-        start = end
-    else:
-      return False
-
-    _, success = zip(*[p.recv() for p in self.pipes])
-    return all(success)
-
-  def rollout(self, random_policy):
-    for p in self.pipes:
-      p.send(('rollout', random_policy))
-
-    rollouts = []
-    all_success = True
-    for rollout, success in [p.recv() for p in self.pipes]:
-      print("here")
-      rollouts.extend(rollout)
-      all_success = all_success and success 
-
-    obs_batch = []
-    act_batch = []
-    for obs, act in rollouts:
-      obs_batch.append(obs)
-      act_batch.append(act)
-
-    # (seq_len, batch_size, dim)
-    obs_batch = pt.from_numpy(np.stack(obs_batch, axis=1))
-    act_batch = pt.from_numpy(np.stack(act_batch, axis=1))
-    return (obs_batch, act_batch), all_success
-
-  def evaluate(self):
-    for p in self.pipes:
-      p.send(('evaluate', None))
-
-    fits = []
-    all_success = True
-    for fit, success in [p.recv() for p in self.pipes]:
-      fits.extend(fit)
-      all_success = all_success and success
-
-    return fits, all_success
-
-  def close(self):
-    for p in self.pipes:
-      p.send(('close', None))
-    _, success = zip(*[p.recv() for p in self.pipes])
-    return all(success)
-
-    #
 
 class ValueLogger:
   def __init__(self, name, bufsize=100):
@@ -435,50 +477,46 @@ class NormalizedActions(gym.ActionWrapper):
         return action
 '''
 
-def main(args):
-  print("IT'S DANGEROUS TO GO ALONE! TAKE THIS.")
-  
+if __name__ == '__main__':
+  print("hello world???")
   np.random.seed(0)
   pt.manual_seed(0)
 
   env =gym.make(ENV_NAME)
   print(env)
   env.seed(0)
-  #np.random.seed(RANDOMSEED)
-  #pt.manual_seed(RANDOMSEED)
-
- 
-  #env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
-
-  obs_dim = env.observation_space.shape[0]
+  obs_dim = env.observation_space.shape[0] #this is for the lunar lander environment
   #act_dim = env.action_space.shape[0]
   act_dim = env.action_space.n
-
+  
   print("Initializing agent (device=" +  str(device)  + ")...")
-  rnn = WorldModel(obs_dim, act_dim)
-  ctrl = Controller(obs_dim+rnn.hid_dim, act_dim)
-
+  rnn = WorldModel(obs_dim, act_dim) # WE get our RNN with LSTM --> initialize
+  ctrl = Controller(obs_dim+rnn.hid_dim, act_dim) # we get our controller 
+  print("what is in the controller?", ctrl)
   # Adjust population size based on the number of available CPUs.
-  #num_workers = mp.cpu_count() if args.nproc is None else args.nproc
-  #num_workers = min(num_workers, mp.cpu_count())
   num_workers = 1
-  agents_per_worker = args.popsize // num_workers
-  popsize = num_workers * agents_per_worker
-
-  print("Initializing population with" + str(popsize) + " workers...")
+  agents_per_worker = 1
+  popsize = 1
+  
+  print("Initializing population with " + str(popsize) + " workers...")
   pop = Population(num_workers, agents_per_worker)
-  global_mu = np.zeros_like(ctrl.genotype)
+  print("what does population look like?", pop)
+  global_mu = np.zeros_like(ctrl.genotype())
+  print(global_mu)
 
+  
   loss_logger = ValueLogger('ha_rnn_loss', bufsize=20)
   best_logger = ValueLogger('ha_ctrl_best', bufsize=100)
 
   # Train the RNN with random policies.
-  print("Training M model with a random policy...")
-  optimizer = optim.Adam(rnn.parameters(), lr=args.lr)
-  train_rnn(rnn, optimizer, pop, random_policy=True, 
-    num_rollouts=args.num_rollouts, logger=loss_logger)
-  loss_logger.plot('M model training loss', 'step', 'loss')
+  optimizer = optim.Adam(rnn.parameters(), lr=1e-3)
+
   
+  ############ TRAINING RNN HERE ##########################
+  print('############we are going to train now ################')
+  train_rnn(rnn, optimizer, pop, random_policy=True,  num_rollouts=1000, logger=loss_logger)
+  loss_logger.plot('M model training loss', 'step', 'loss')
+  '''
   # Upload the trained RNN.
   success = pop.upload_rnn(rnn.cpu())
   assert success
@@ -526,3 +564,4 @@ if __name__ == '__main__':
 
   main(args)
 
+  '''
