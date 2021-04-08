@@ -38,19 +38,15 @@ from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Twist
 
 from gazebo_msgs.srv import SetModelState
-
-import threading
-
 from gym.utils import seeding
+import threading
 
 import _thread
 
 from squaternion import Quaternion
-
 from simple_pid import PID
 
 import pickle
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -624,6 +620,7 @@ class GazeborosEnv(gym.Env):
         self.paths = []
         self.log_file = None
         try:
+	    #with open('/home/alik604/person_trajectories_rl.pkl', 'rb') as f: # literal location
             with open('data/person_trajectories_rl.pkl', 'rb') as f:
                 paths = pickle.load(f)
                 for path in paths:
@@ -711,7 +708,7 @@ class GazeborosEnv(gym.Env):
 
             orientation = euler[0]
             fall_angle = np.deg2rad(90)
-            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1:
+            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1: # TODO consider relaxing constraint from 0.1. 
                 self.fallen = True
             # get velocity
             twist = states_msg.twist[model_idx]
@@ -1505,7 +1502,7 @@ class GazeborosEnv(gym.Env):
             self.update_observation_image()
             episode_over = True
             rospy.loginfo('collision happened episode over')
-            reward -= 0.5
+            reward -= 0.5 # maybe remove less when in start of leaning 
         elif distance > 5:
             self.update_observation_image()
             self.is_max_distance = True
@@ -1519,7 +1516,7 @@ class GazeborosEnv(gym.Env):
             rospy.loginfo('fallen')
         reward = min(max(reward, -1), 1)
         if self.agent_num == 0:
-            rospy.loginfo("action {} reward {}".format(action, reward))
+            rospy.loginfo("action {} reward {}".format(action, reward)) # TODO consider suppressing this log
         if episode_over:
             self.person.reset = True
         #reward += 1
@@ -1604,12 +1601,12 @@ class GazeborosEnv(gym.Env):
                         self.log_file.close()
 
                     self.path_idx += 1
-                    print ("start path_id: {}".format(self.path_idx))
+                    print("start path_id: {}".format(self.path_idx))
                     if self.path_idx < len(self.paths)-1:
                         self.path = self.paths[self.path_idx]
                         self.log_file = open(self.path["name"], "wb")
                     else:
-                        print ("all done")
+                        print("all done")
                         self.person.stop_robot()
                         exit(0)
                 self.init_simulator()
@@ -1686,7 +1683,7 @@ class GazeborosEnv(gym.Env):
     def reachability_action(self):
         relative = GazeborosEnv.get_relative_position(self.robot.get_pos(), self.person)
         orientation = GazeborosEnv.wrap_pi_to_pi(self.robot.get_orientation() - self.person.get_orientation())
-        print (np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
+        print(np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
         velocity = self.robot.get_velocity()[0]
         derivative_v, derivative_theta, v = self.calculate_rechability_derivite(relative[0], relative[1], velocity, orientation)
         rospy.loginfo("d_v: {:0.5f} W: {:0.5f} v {:0.1f}".format(derivative_v, derivative_theta, v))
