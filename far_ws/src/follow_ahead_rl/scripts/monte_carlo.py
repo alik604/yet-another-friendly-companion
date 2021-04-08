@@ -268,7 +268,7 @@ print('observation space:', env.observation_space.shape[0])
 print('action space:', env.action_space.n)
 
 policy = MCTS(env, n_states, hidden_size, n_actions).to(device)
-scores, reward = policy.reinforce_mc(env, 5000)
+scores, reward = policy.reinforce_mc(env, 10000)
 
 print("here are the rewards: ", len(reward[0]))
 print("here are the rewards: ", np.asarray(reward[0]))
