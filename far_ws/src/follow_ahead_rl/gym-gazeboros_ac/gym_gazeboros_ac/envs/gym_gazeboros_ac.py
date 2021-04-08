@@ -67,14 +67,17 @@ class EnvConfig:
     # 1: Places obstacles randomly within circle
     OBSTACLE_MODE = 0
 
-    # Radius for random placement of objects
+    # Radius(meters) away from person robot for random placement(mode 1) of objects
     OBSTACLE_RADIUS_AWAY = 3
 
     # Obstacle size
     OBSTACLE_SIZE = 0.5
 
-    # Allows/Denies TEB Local Planner to avoid obstacles
+    # Allows/Denies Robot TEB Local Planner to avoid obstacles
     SEND_TEB_OBSTACLES = False
+
+    # Gets person robot to use move base
+    PERSON_USE_MB = True
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -169,9 +172,9 @@ class Robot():
         else:
             self.cmd_vel_pub =  rospy.Publisher('/{}/cmd_vel'.format(name), Twist, queue_size=1)
 
-        if "tb3" in self.name and self.use_movebase:
+        if ("tb3" in self.name and self.use_movebase) or ("person" in self.name and EnvConfig.PERSON_USE_MB):
             # Create an action client called "move_base" with action definition file "MoveBaseAction"
-            self.action_client_ = actionlib.SimpleActionClient('/move_base_{}'.format(self.agent_num),MoveBaseAction)
+            self.action_client_ = actionlib.SimpleActionClient('/move_base_{}'.format(self.name),MoveBaseAction)
             # Waits until the action server has started up and started listening for goals.
             self.action_client_.wait_for_server(rospy.rostime.Duration(0.4))
         else:
@@ -524,7 +527,6 @@ class GazeborosEnv(gym.Env):
         self.small_window_size = False
         self.use_predifined_mode_person = True
         self.use_goal = True
-        rospy.loginfo("self.use_goal = {}".format(self.use_goal))
         self.use_orientation_in_observation = True
 
         self.collision_distance = 0.3
@@ -537,6 +539,8 @@ class GazeborosEnv(gym.Env):
         self.use_obstacles = EnvConfig.USE_OBSTACLES
         self.obstacle_mode = EnvConfig.OBSTACLE_MODE
         self.obstacle_names = []
+
+        self.person_use_move_base = EnvConfig.PERSON_USE_MB
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -765,12 +769,10 @@ class GazeborosEnv(gym.Env):
     def create_robots(self):
 
         self.person = Robot('person_{}'.format(self.agent_num),
-                            max_angular_speed=1, max_linear_speed=.6, agent_num=self.agent_num, window_size=self.window_size, is_testing=self.is_testing)
+                            max_angular_speed=1, max_linear_speed=.6, agent_num=self.agent_num, window_size=self.window_size, is_testing=self.is_testing, use_goal=self.use_goal, use_movebase=self.use_movebase)
 
         relative = self.person
 
-        if self.use_goal:
-            relative = self.person
         self.robot = Robot('tb3_{}'.format(self.agent_num),
                             max_angular_speed=1.8, max_linear_speed=0.8, relative=relative, agent_num=self.agent_num, use_goal=self.use_goal, use_movebase=self.use_movebase ,use_jackal=self.use_jackal, window_size=self.window_size, is_testing=self.is_testing)
 
@@ -1006,6 +1008,7 @@ class GazeborosEnv(gym.Env):
         self.person.update(init_pos_person)
 
         self.path_finished = False
+
         self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
         self.position_thread.daemon = True
 
@@ -1165,6 +1168,11 @@ class GazeborosEnv(gym.Env):
         1: robot will try to go to a point after person
     """
     def path_follower(self, idx_start, robot):
+
+        if self.person_use_move_base:
+            self.person.take_action([2,2])
+
+            return
 
         counter = 0
         while self.is_pause:

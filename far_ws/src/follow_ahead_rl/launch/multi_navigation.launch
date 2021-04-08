@@ -1,14 +1,18 @@
 <launch>
   <include file="$(find follow_ahead_rl)/launch/navigation.launch">
     <arg name="agent_num" value="0" />
+    <arg name="cmd_topic_name"  value="/tb3_0/jackal_velocity_controller/cmd_vel"/>
   </include>
   <include file="$(find follow_ahead_rl)/launch/navigation.launch">
     <arg name="agent_num" value="1" />
+    <arg name="cmd_topic_name"  value="/tb3_1/jackal_velocity_controller/cmd_vel"/>
   </include>
   <include file="$(find follow_ahead_rl)/launch/navigation.launch">
     <arg name="agent_num" value="2" />
+    <arg name="cmd_topic_name"  value="/tb3_2/jackal_velocity_controller/cmd_vel"/>
   </include>
   <include file="$(find follow_ahead_rl)/launch/navigation.launch">
     <arg name="agent_num" value="3" />
+    <arg name="cmd_topic_name"  value="/tb3_3/jackal_velocity_controller/cmd_vel"/>
   </include>
 </launch>

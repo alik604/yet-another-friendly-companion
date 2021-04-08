@@ -18,6 +18,11 @@
 
   <include file="$(find follow_ahead_rl)/launch/navigation.launch"/>
 
+  <include file="$(find follow_ahead_rl)/launch/navigation.launch">
+    <arg name="robot_name" value="person"/>
+    <arg name="cmd_topic_name"  value="/person_0/cmd_vel"/>
+  </include>
+
   <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/>
 
 </launch>
