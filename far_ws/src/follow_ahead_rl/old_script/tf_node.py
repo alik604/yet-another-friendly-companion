@@ -1,4 +1,3 @@
-
 import rospy
 from geometry_msgs.msg import TransformStamped
 from gazebo_msgs.msg import ModelStates
