@@ -146,4 +146,3 @@ far_ws/src/CMakeLists.txt
 
 # More to Ignore
 logs/
-far_ws/src/follow_ahead_rl/scripts/.vscode/settings.json
