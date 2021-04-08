@@ -598,7 +598,7 @@ class GazeborosEnv(gym.Env):
         self.paths = []
         self.log_file = None
         try:
-            with open('/home/alik604/person_trajectories_rl.pkl', 'rb') as f: # literal location
+            with open('data/person_trajectories_rl.pkl', 'rb') as f:
                 paths = pickle.load(f)
                 for path in paths:
                     angle_person = path['start_person']['orientation']
