@@ -1004,6 +1004,8 @@ class GazeborosEnv(gym.Env):
         self.current_obsevation_image_.fill(255)
         if self.use_movebase:
             self.robot.movebase_cancel_goals()
+        if self.person_use_move_base:
+            self.person.movebase_cancel_goals()
         rospy.sleep(0.5)
         self.person.stop_robot()
         self.robot.stop_robot()
@@ -1027,7 +1029,6 @@ class GazeborosEnv(gym.Env):
         self.path_finished = False
         
         if self.person_use_move_base:
-            self.person.movebase_cancel_goals()
             self.person.take_action([2,0])
         else:
             self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
@@ -1489,8 +1490,6 @@ class GazeborosEnv(gym.Env):
         alpha = 0.50
         self.current_obsevation_image_ = cv.addWeighted(self.new_obsevation_image_, alpha, self.current_obsevation_image_, 1 - alpha, 0)
 
-
-
     def get_current_observation_image(self):
 
         image = self.current_obsevation_image_
@@ -1626,9 +1625,6 @@ class GazeborosEnv(gym.Env):
     def save_log(self):
         pickle.dump({"person_history":self.person.log_history, "robot_history":self.robot.log_history}, self.log_file)
         self.log_file.close()
-
-
-
 
     def reset(self, reset_gazebo=False):
 
