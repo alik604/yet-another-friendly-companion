@@ -55,6 +55,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Environment Parameters
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
     USE_TESTING = False
@@ -78,6 +79,9 @@ class EnvConfig:
 
     # Gets person robot to use move base
     PERSON_USE_MB = True
+
+    # Episode Length
+    EPISODE_LEN = 15
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -541,6 +545,8 @@ class GazeborosEnv(gym.Env):
         self.obstacle_names = []
 
         self.person_use_move_base = EnvConfig.PERSON_USE_MB
+        self.person_mode = 4
+        self.position_thread = None
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -627,6 +633,9 @@ class GazeborosEnv(gym.Env):
     def use_test_setting(self):
         self.is_use_test_setting = True
     
+    def set_person_mode(self, setting):
+        self.person_mode = setting
+
     def set_use_obstacles(self, setting):
         self.use_obstacles = setting
 
@@ -989,7 +998,6 @@ class GazeborosEnv(gym.Env):
             self.set_pos(self.obstacle_names[obs_idx], obs_positions[obs_idx])
         
     def init_simulator(self):
-
         self.number_of_steps = 0
         rospy.loginfo("init simulation called")
         self.is_pause = True
@@ -1000,6 +1008,11 @@ class GazeborosEnv(gym.Env):
         self.fallen = False
         self.is_max_distance = False
         self.first_call_observation = True
+
+        rospy.loginfo("Waiting for path follower to die")
+        if self.position_thread:
+            self.position_thread.join()        
+        rospy.loginfo("Done waiting")
 
         self.current_obsevation_image_.fill(255)
         if self.use_movebase:
@@ -1028,13 +1041,10 @@ class GazeborosEnv(gym.Env):
 
         self.path_finished = False
         
-        if self.person_use_move_base:
-            self.person.take_action([2,0])
-        else:
-            self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
-            self.position_thread.daemon = True
-            self.is_reseting = False
-            self.position_thread.start()
+        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
+        self.position_thread.daemon = True
+        self.is_reseting = False
+        self.position_thread.start()
 
         self.wait_observation_ = 0
 
@@ -1184,104 +1194,136 @@ class GazeborosEnv(gym.Env):
     def set_robot_to_auto(self):
         self.robot_mode = 1
 
-    """
-    the function will check the self.robot_mode:
-        0: will not move robot
-        1: robot will try to go to a point after person
-    """
+
     def path_follower(self, idx_start, robot):
-        # if self.person_use_move_base:
-        #     self.person.take_action([2,0])
 
-            # return
+        """
+        Move base person mode:
+        0: Attempt straight path (default)
+        1: Attempt left curved path
+        2: Attempt right curved path
+        3: Random
+        4: Zig zag
+        """
+        if self.person_use_move_base:
+                           
+            if self.person_mode == 1:
+                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
+                    self.person.take_action([2,i*0.75])
+                    rospy.sleep(1)
+            elif self.person_mode == 2:
+                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
+                    self.person.take_action([2,-i*0.75])
+                    rospy.sleep(1)
+            elif self.person_mode == 3:
+                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
+                    x = random.random()
+                    y = random.random()
+                    if random.randint(0,1) == 0:
+                        x *= -1
+                    if random.randint(0,1) == 0:
+                        y *= -1
 
-        counter = 0
-        while self.is_pause:
-            if self.is_reseting:
-                rospy.loginfo( "path follower return as reseting ")
-                return
-            time.sleep(0.001)
-            if counter > 10000:
-                rospy.loginfo( "path follower waiting for pause to be false")
-                counter = 0
-            counter += 1
-        rospy.loginfo( "path follower waiting for lock pause:{} reset:{}".format(self.is_pause, self.is_reseting))
-        if self.lock.acquire(timeout=10):
-            rospy.sleep(1.5)
-            rospy.loginfo("path follower got the lock")
-            if self.is_use_test_setting:
-                mode_person = self.path_follower_test_settings[self.path_follower_current_setting_idx][0]
-            elif self.test_simulation_:
-                mode_person = -1
-            elif self.is_evaluation_:
-                mode_person = 2
-            elif self.use_predifined_mode_person:
-                mode_person = self.mode_person
+                    self.person.take_action([x, y])
+                    rospy.sleep(1)
+            elif self.person_mode == 4:
+
+                y = 0.5
+                for i in range( math.floor((EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)/2)):
+                    self.person.take_action([2,y])
+                    y *= -1
+                    rospy.sleep(2)
             else:
-                mode_person = random.randint(0, 7)
-                #if self.agent_num == 2:
-                #    mode_person = random.randint(1, self.max_mod_person_)
-                #else:
-                #    mode_person = 0
-                # if self.agent_num == 0:
-                #     mode_person = 5
-                # elif self.agent_num == 1:
-                #     mode_person = 2
-                # elif self.agent_num == 2:
-                #     mode_person = 3
-                # elif self.agent_num == 3:
-                #     mode_person = 7
-                # else:
-                #     mode_person = random.randint(1, self.max_mod_person_)
-            # if mode_person == 0:
-            #     person_thread = threading.Thread(target=self.person.go_to_goal, args=())
-            #     person_thread.start()
-            if self.use_goal and not self.use_movebase:
-                self.robot_thread = threading.Thread(target=self.robot.go_to_goal, args=())
-                self.robot_thread.start()
-
-            for idx in range (idx_start, len(self.path["points"])-3):
-                point = (self.path["points"][idx][0], self.path["points"][idx][1])
-                self.current_path_idx = idx
-                counter_pause = 0
-                while self.is_pause:
-                    counter_pause+=1
-                    rospy.loginfo("pause in path follower")
-                    if self.is_reseting or counter_pause > 200:
-                        # if mode_person == 0:
-                        #     person_thread.join()
-                        self.lock.release()
-                        return
-                    time.sleep(0.001)
-                try:
-                    if mode_person <= 6:
-                        self.person.use_selected_person_mod(mode_person)
-                    else:
-                        self.person.go_to_pos(point, stop_after_getting=True)
-                        time.sleep(0.001)
-                    # person_thread.start()
-                    # if self.robot_mode == 1:
-                    #     noisy_point = (self.path["points"][idx+3][0] +min(max(np.random.normal(),-0.5),0.5), self.path["points"][idx+3][1] +min(max(np.random.normal(),-0.5),0.5))
-
-                    #     robot_thread = threading.Thread(target=self.robot.go_to_pos, args=(noisy_point,True,))
-                    #     robot_thread.start()
-                    #     robot_thread.join()
-
-                    # person_thread.join()
-
-                except Exception as e:
-                    rospy.logerr("path follower {}, {}".format(self.is_reseting, e))
-                    traceback.print_exc()
-                    break
-                if self.is_reseting:
-                    self.person.stop_robot()
-                    break
-            self.lock.release()
-            rospy.loginfo("path follower release the lock")
-            self.path_finished = True
+                self.person.take_action([2,0])
+                
         else:
-            rospy.loginfo("problem in getting the log in path follower")
-        # robot.stop_robot()
+            counter = 0
+            while self.is_pause:
+                if self.is_reseting:
+                    rospy.loginfo( "path follower return as reseting ")
+                    return
+                time.sleep(0.001)
+                if counter > 10000:
+                    rospy.loginfo( "path follower waiting for pause to be false")
+                    counter = 0
+                counter += 1
+            rospy.loginfo( "path follower waiting for lock pause:{} reset:{}".format(self.is_pause, self.is_reseting))
+            if self.lock.acquire(timeout=10):
+                rospy.sleep(1.5)
+                rospy.loginfo("path follower got the lock")
+                if self.is_use_test_setting:
+                    mode_person = self.path_follower_test_settings[self.path_follower_current_setting_idx][0]
+                elif self.test_simulation_:
+                    mode_person = -1
+                elif self.is_evaluation_:
+                    mode_person = 2
+                elif self.use_predifined_mode_person:
+                    mode_person = self.mode_person
+                else:
+                    mode_person = random.randint(0, 7)
+                    #if self.agent_num == 2:
+                    #    mode_person = random.randint(1, self.max_mod_person_)
+                    #else:
+                    #    mode_person = 0
+                    # if self.agent_num == 0:
+                    #     mode_person = 5
+                    # elif self.agent_num == 1:
+                    #     mode_person = 2
+                    # elif self.agent_num == 2:
+                    #     mode_person = 3
+                    # elif self.agent_num == 3:
+                    #     mode_person = 7
+                    # else:
+                    #     mode_person = random.randint(1, self.max_mod_person_)
+                # if mode_person == 0:
+                #     person_thread = threading.Thread(target=self.person.go_to_goal, args=())
+                #     person_thread.start()
+                if self.use_goal and not self.use_movebase:
+                    self.robot_thread = threading.Thread(target=self.robot.go_to_goal, args=())
+                    self.robot_thread.start()
+
+                for idx in range (idx_start, len(self.path["points"])-3):
+                    point = (self.path["points"][idx][0], self.path["points"][idx][1])
+                    self.current_path_idx = idx
+                    counter_pause = 0
+                    while self.is_pause:
+                        counter_pause+=1
+                        rospy.loginfo("pause in path follower")
+                        if self.is_reseting or counter_pause > 200:
+                            # if mode_person == 0:
+                            #     person_thread.join()
+                            self.lock.release()
+                            return
+                        time.sleep(0.001)
+                    try:
+                        if mode_person <= 6:
+                            self.person.use_selected_person_mod(mode_person)
+                        else:
+                            self.person.go_to_pos(point, stop_after_getting=True)
+                            time.sleep(0.001)
+                        # person_thread.start()
+                        # if self.robot_mode == 1:
+                        #     noisy_point = (self.path["points"][idx+3][0] +min(max(np.random.normal(),-0.5),0.5), self.path["points"][idx+3][1] +min(max(np.random.normal(),-0.5),0.5))
+
+                        #     robot_thread = threading.Thread(target=self.robot.go_to_pos, args=(noisy_point,True,))
+                        #     robot_thread.start()
+                        #     robot_thread.join()
+
+                        # person_thread.join()
+
+                    except Exception as e:
+                        rospy.logerr("path follower {}, {}".format(self.is_reseting, e))
+                        traceback.print_exc()
+                        break
+                    if self.is_reseting:
+                        self.person.stop_robot()
+                        break
+                self.lock.release()
+                rospy.loginfo("path follower release the lock")
+                self.path_finished = True
+            else:
+                rospy.loginfo("problem in getting the log in path follower")
+            # robot.stop_robot()
 
 
     def get_laser_scan(self):
