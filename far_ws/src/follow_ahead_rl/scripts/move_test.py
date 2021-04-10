@@ -36,9 +36,8 @@ if __name__ == '__main__':
         for i in range(EPISODE_LEN):
             action = [1,0]
             state, reward, done, _ = env.step(action)
-            
-            # Prints out system velocities
-            # print(f"system_velocities = {env.get_system_velocities()}")
+
+            print(state)
             
             sleep(1)
 

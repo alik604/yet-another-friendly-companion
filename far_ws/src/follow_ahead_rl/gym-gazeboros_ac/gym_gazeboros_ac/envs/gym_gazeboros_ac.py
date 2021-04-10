@@ -83,6 +83,9 @@ class EnvConfig:
     # Episode Length
     EPISODE_LEN = 15
 
+    # Returns Human State only in get_observations if True
+    RETURN_HINN_STATE = True
+
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
         self.idx = 0
@@ -1390,6 +1393,9 @@ class GazeborosEnv(gym.Env):
         else:
             velocities_heading = velocities
         final_ob =  np.append(np.append(pos_history, velocities_heading), self.prev_action)
+
+        if EnvConfig.RETURN_HINN_STATE:
+            final_ob = np.append(np.append(person_vel, heading_person), pos_his_person)
 
         return final_ob
 
