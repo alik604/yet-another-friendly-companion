@@ -55,9 +55,9 @@ logger = logging.getLogger(__name__)
 class EnvConfig:
     # Boolean to make robots spawn at constant locations
     USE_TESTING = False
-    
+
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = True
+    USE_OBSTACLES = False
 
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person

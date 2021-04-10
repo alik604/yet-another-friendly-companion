@@ -3,6 +3,7 @@
   <arg name="agent_num" default="0" />
   <arg name="robot_name" default="tb3"/>
   <arg name="cmd_topic_name"  default="/tb3_0/jackal_velocity_controller/cmd_vel"/>
+  <arg name="params_file" default="teb_local_planner_params.yaml"/>
   
   <arg name="base_frame" default="$(arg robot_name)_$(arg agent_num)/base_link" />
   <arg name="odom_frame" default="$(arg robot_name)_$(arg agent_num)/odom" />
@@ -95,7 +96,7 @@
     <!-- <rosparam file="$(find follow_ahead_rl)/config_nav_pioneer/base_local_planner_params.yaml" command="load" /> -->
 
     <!-- For teb base planner -->
-    <rosparam file="$(find follow_ahead_rl)/config_nav/teb_local_planner_params.yaml" command="load" if="$(arg use_teb)" />
+    <rosparam file="$(find follow_ahead_rl)/config_nav/$(arg params_file)" command="load" if="$(arg use_teb)" />
     <rosparam file="$(find follow_ahead_rl)/config_nav/planner.yaml" command="load" unless="$(arg use_teb)" />
 
   </node>
