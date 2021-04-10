@@ -1,4 +1,3 @@
-
 import rospy
 from geometry_msgs.msg import TransformStamped
 from gazebo_msgs.msg import ModelStates
@@ -13,7 +12,7 @@ class TF_State_Publisher():
 
     def model_states_cb(self,  states_msg):
         for model_idx in range(len(states_msg.name)):
-            if "tb3" in states_msg.name[model_idx]:
+            if "tb3" in states_msg.name[model_idx] or "person" in states_msg.name[model_idx]:
                 pos = states_msg.pose[model_idx]
                 state = {}
                 self.publish_tf(pos, "{}/base_link".format(states_msg.name[model_idx]), "{}/odom".format(states_msg.name[model_idx]))
