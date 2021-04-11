@@ -16,12 +16,12 @@ import gym_gazeboros_ac
 
 from HumanIntentNetwork import HumanIntentNetwork
 
-TRAIN_ON_ONLY_NEW = False
+TRAIN_ON_ONLY_NEW = False # and saves only new. this is because I commented out 2 lines
 
 ENV_NAME = 'gazeborosAC-v0'
 RANDOMSEED = 42
 
-EPISODES = 100  # 2000     # Simulations
+EPISODES = 100  # 1000     # Simulations
 STEPS_PER_EPI = 20
 EPOCHS = 10  # 1000     # Training
 BATCH_SIZE = 64
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     if TRAIN_ON_ONLY_NEW:
         list_of_human_state = []
         list_of_human_state_next = []
-    else:
+    else: # if error, make `TRAIN_ON_ONLY_NEW = True1, 
         list_of_human_state = pd.read_csv(save_local_1).values.tolist()
         list_of_human_state_next = pd.read_csv(save_local_2).values.tolist()
 
@@ -71,8 +71,8 @@ if __name__ == '__main__':
             list_of_human_state.append(human_state)
             # print(f"person pose: {human_state}")
 
-            # sleep(0.1)
-            # np.random()
+            time_to_sleep = np.random.choice([0.075, 0.01, 0.0125, 0.015], 1)
+            sleep(time_to_sleep[0])
 
             state, reward, done, _ = env.step(action)
             # if done:    break # will need to discard non-parallel end
@@ -103,8 +103,8 @@ if __name__ == '__main__':
         COPY_list_of_human_state_next_ = list_of_human_state_next.copy()
 
         # extend copy with saved data
-        # COPY_list_of_human_state_.extend(pd.read_csv(save_local_1).values.tolist())
-        # COPY_list_of_human_state_next_.extend(pd.read_csv(save_local_2).values.tolist())
+        COPY_list_of_human_state_.extend(pd.read_csv(save_local_1).values.tolist())
+        COPY_list_of_human_state_next_.extend(pd.read_csv(save_local_2).values.tolist())
 
         # save data
         _ = pd.DataFrame(COPY_list_of_human_state_).to_csv(
@@ -164,6 +164,7 @@ if __name__ == '__main__':
     plt.xlabel('Epoch')
     plt.ylabel('Loss (MSE)')
     plt.title('Loss of (possibly) Pre-Trained model')
+    plt.savefig('image.png')
     plt.show()
 
     print("END")

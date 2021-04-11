@@ -1,6 +1,6 @@
 '''
 NN does:
- - Take human intent (anthony mades function)
+ - Takes state 
  - - loss. MSE(human.next_state and human.next_state_prime)
  - Output possible moves of human
 
@@ -19,7 +19,6 @@ Terminal 4: run this file
 ie: cd .../far_ws && source devel/setup.bash
 
 if you have a issue with `tf_node.py`, follow this https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
-
 '''
 
 import os
@@ -60,7 +59,7 @@ class RBF_HumanIntentNetwork(nn.Module):
 
 
 class HumanIntentNetwork(nn.Module):
-    def __init__(self, inner=128, input_dim=23, output_dim=3, chkpt_dir='./model_weights/HumanIntentNetwork', ):
+    def __init__(self, inner=128, input_dim=23, output_dim=3, chkpt_dir='./model_weights/HumanIntentNetwork'):
         super(HumanIntentNetwork, self).__init__()
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(
