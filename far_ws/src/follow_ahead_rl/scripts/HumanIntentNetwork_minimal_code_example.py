@@ -28,23 +28,31 @@ if __name__ == '__main__':
     # print(state)
 
 
-    action = [random.uniform(-1, 1), random.uniform(-1, 1)]
+    action= [-50, 50] #[random.uniform(-1, 1), random.uniform(-1, 1)]
     print(action)
 
-    state, reward, done, _ = env.step(action)
-    human_state = list(env.get_person_pos())
-    print(f"person pose 1st: {human_state}")
+    state, reward, done, _ = env.step(action) # state[2] is oriantation. 
+    # if done:    break
+    human_state=list(state)
+    list_of_human_state.append(human_state)
+    # print(f"person pose: {human_state}")
+
+    # sleep(0.1) 
+    # np.random()
 
     state, reward, done, _ = env.step(action)
-    human_state_next = list(env.get_person_pos())
-    print(f"person pose 2nd: {human_state_next}")
+    # if done:    break # will need to discard non-parallel end 
+
+    xy = env.get_person_pos()
+    next_state = [xy[0], xy[1], state[2]] 
+    list_of_human_state_next.append(next_state)
 
     # Prints out system velocities
     # print(f"system_velocities = {env.get_system_velocities()}")
 
     env.close()
 
-    model = HumanIntentNetwork(inner=24)
+    model = HumanIntentNetwork(inner=128, input_dim=23, output_dim=3)
     model.load_checkpoint()
     model.to(device)
 
@@ -60,8 +68,8 @@ if __name__ == '__main__':
 
     for i in range(0, human_state.size(0)):
 
-        target = human_state[i] 
-        pred = model.forward(human_state_next[i])
+        pred = model.forward(human_state[i]) # 23x1 -> 3x1
+        target = human_state_next[i] # 3x1
 
         # optimizer.zero_grad()
         loss = criterion(pred, target)

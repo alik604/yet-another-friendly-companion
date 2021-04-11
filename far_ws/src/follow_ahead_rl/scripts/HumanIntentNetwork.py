@@ -60,15 +60,15 @@ class RBF_HumanIntentNetwork(nn.Module):
 
 
 class HumanIntentNetwork(nn.Module):
-    def __init__(self, inner=24, chkpt_dir='./model_weights/HumanIntentNetwork'):
+    def __init__(self, inner=128, input_dim=23, output_dim=3, chkpt_dir='./model_weights/HumanIntentNetwork', ):
         super(HumanIntentNetwork, self).__init__()
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(
-            self.checkpoint_dir, 'HumanIntentNetwork_deeper')
-        self.fc1 = nn.Linear(2, inner)
-        self.fc2 = nn.Linear(inner, inner*2)
-        self.fc2_5 = nn.Linear(inner*2, inner)
-        self.fc3 = nn.Linear(inner, 2)
+            self.checkpoint_dir, 'HumanIntentNetwork')
+        self.fc1 = nn.Linear(input_dim, inner) 
+        self.fc2 = nn.Linear(inner, inner*4)
+        self.fc2_5 = nn.Linear(inner*4, inner)
+        self.fc3 = nn.Linear(inner, output_dim)
         self.selu = nn.SELU()  # ReLU, LeakyReLU
 
     def forward(self, x):
@@ -84,4 +84,7 @@ class HumanIntentNetwork(nn.Module):
 
     def load_checkpoint(self):
         print('... loading checkpoint ...')
-        self.load_state_dict(torch.load(self.checkpoint_file))
+        try:
+            self.load_state_dict(torch.load(self.checkpoint_file))
+        except Exception as e:
+            print('... FAILED: loading checkpoint ...')
