@@ -1,17 +1,14 @@
 # Follow Ahead RL Workspace
 
-```
+To build project and run project
+
+```bash
 catkin_make
 . devel/setup.bash
+roslaunch src/follow_ahead_rl/launch/turtlebot.launch
 ```
 
 
 
+Please note you might have to clone this repo with `git submodule update --init --recursive`, so get the contents of `/multi_jackal`  
 
-
-On ali's machine
-```
-cd ~/yet-another-friendly-companion/far_ws && . devel/setup.bash && cd /home/alik604/yet-another-friendly-companion/far_ws/ && roslaunch src/follow_ahead_rl/launch/turtlebot.launch
-
-cd ~/yet-another-friendly-companion/far_ws && . devel/setup.bash && cd /home/alik604/yet-another-friendly-companion/far_ws/src/follow_ahead_rl/scripts
-```

@@ -1,12 +1,37 @@
-# yet-another-friendly-companion
-Like chucky, but not evil
+# Following from ahead 
 
+> Comparing Model-Based Methods to Predict Human Trajectory in Follow-Ahead Problem
 
+By Emma Hughson, Kai Ho Anthony Cheung, Khizr Ali Pardhan, and Scott Harrison. An expansion upon [*LBGP: Learning Based Goal Planning for Autonomous Following in Front*](https://arxiv.org/pdf/2011.03125v1.pdf). 
 
-TODO:
-1. World-model implementation
-2. Obstacles
-3. DDPG implementation
+## Introduction
 
+**What is Follow-Ahead?** Following-ahead algorithms use machine learning to predict human trajectory to stay ahead of humans. Follow-behind algorithms have had more recognition. For example, one application is a follow-behind shopping cart. **But,** there is a lack of security. 
 
-ROUGH DRAFT OF PAPER: https://docs.google.com/document/d/1W5nA7XZFgkTZtVDxzDmhYa7a5MCrF2Vm4UP0QFRM1Ow/edit
+**Why Model-Based Methods: **The field of reinforcement learning is **primarily focused** on model-free methods. Model-based methods have been shown to be more efficient than model-free.
+
+**What our solution is:** **Extending the work** of Nikdel et al., we will be using model-based algorithms with the addition of obstacle avoidance.
+
+![img](https://lh6.googleusercontent.com/vcm2ETgHOHVG5tV7dPMG_KrdsmWEvy1fmwErLSB3Xl8i5PEUYqGL5HrypWWaBUQ7Hr0-hlVixG0MCVV4tjZJWhsgl1mtOYrb8qH3Eo95ZqfhsGuMQ_8KH-owDRc3l7JuLzrPFdGCpWI)
+
+## Methods
+
+Our approach is to use a popular model-based learning algorithm (i.e., World Model) along with executing our own Human Intent Neural Network (HINN).
+
+**World Model**: 
+
+> Convolutional Variational AutoEncoder -> Long Short Term Memory Network -> Controller.
+
+**HINN + Heuristic Search:** The Human Intent Neural Network is a feed forward neural network, which outputs the prediction of the next human state. Prediction is used to generate a goal for the robot. Heuristic search algorithms: Monte Carlo Tree Search (MCTS) or Distance Heuristic.
+
+We have extended the given Gym environment to include obstacles, obstacle avoidance, and support for our pipeline. We have also started training the HINN, as well as implementing the heuristics and world-model algorithm.
+
+### ROS & Gazebo 
+
+We used Gazebo to simulate the robot follow-ahead scenario. Using the ROS navigation stack with TEB Local Planner we implemented obstacle avoidance. With a combination of ROS, Gazebo, and Gym we generated training data and control the simulation.
+
+![img](https://lh6.googleusercontent.com/JbH-ANjURLGVGEhtxxVbhi0PGxWdmi6QsuQxo64STBQ5n4hA3QDlsZUstYbZj7VStTNPTRWmdh8nTL38WECI5HPZLJ-C5t0Avw3Jqa1YRa027D-7W-ioJ6wt6H6gZJ5kAd4Gzr61JCw)
+
+## Conclusion 
+
+We have seen promising preliminary results from the HINN. Currently, we cannot state if model-based is better than model-free. In the next week, the model-based algorithms will be completed using obstacle avoidance. If time allows, we hope to utilize MCTS to choose the best robot action. Changing our obstacle avoidance to use a **costmap** to facilitate a transition to the real world.
