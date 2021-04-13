@@ -1043,7 +1043,7 @@ class GazeborosEnv(gym.Env):
         self.prev_action = (0,0)
 
         # TODO: Override TESTING ONLY
-        init_pos_person = {"pos": (0, 0), "orientation": 3*math.pi/2}
+        # init_pos_person = {"pos": (0, 0), "orientation": 3*math.pi/2}
         # init_pos_robot = {"pos": (15,0), "orientation": 0}
 
         # Set positions of robots and obstacles
