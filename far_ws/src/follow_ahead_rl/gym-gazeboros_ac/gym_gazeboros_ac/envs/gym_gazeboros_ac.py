@@ -82,6 +82,9 @@ class EnvConfig:
     # Returns Human State only in get_observations if True
     RETURN_HINN_STATE = True
 
+    # If True, calls init_simulator() on set_agent() call
+    INIT_SIM_ON_AGENT = False
+
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
         self.idx = 0
@@ -529,7 +532,7 @@ class GazeborosEnv(gym.Env):
         self.obstacle_names = []
 
         self.person_use_move_base = EnvConfig.PERSON_USE_MB
-        self.person_mode = 4
+        self.person_mode = 0
         self.position_thread = None
 
         self.path_follower_current_setting_idx = 0
@@ -665,8 +668,9 @@ class GazeborosEnv(gym.Env):
         self.state_cb_prev_time = None
         self.model_states_sub = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_cb)
 
-        with self.lock:
-            self.init_simulator()
+        if EnvConfig.INIT_SIM_ON_AGENT:
+            with self.lock:
+                self.init_simulator()
     
     def create_obstacle_msg(self, name, pose):
         obstacle_msg = ObstacleMsg()
@@ -1190,17 +1194,19 @@ class GazeborosEnv(gym.Env):
         4: Zig zag
         """
         if self.person_use_move_base:
+            print(f"person_mode = {self.person_mode}")
                            
             if self.person_mode == 1:
-                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
-                    self.person.take_action([2,i*0.75])
+                for i in range(EnvConfig.EPISODE_LEN):
+                    self.person.take_action([0.5,i*0.5])
                     rospy.sleep(1)
             elif self.person_mode == 2:
-                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
-                    self.person.take_action([2,-i*0.75])
+                for i in range(EnvConfig.EPISODE_LEN):
+                    self.person.take_action([0.5,-i * 0.5])
                     rospy.sleep(1)
             elif self.person_mode == 3:
-                for i in range( math.floor(EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)):
+                interval = 5
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
                     x = random.random()
                     y = random.random()
                     if random.randint(0,1) == 0:
@@ -1209,16 +1215,18 @@ class GazeborosEnv(gym.Env):
                         y *= -1
 
                     self.person.take_action([x, y])
-                    rospy.sleep(1)
+                    rospy.sleep(interval)
             elif self.person_mode == 4:
-
                 y = 0.5
-                for i in range( math.floor((EnvConfig.EPISODE_LEN - EnvConfig.EPISODE_LEN * 0.25)/2)):
-                    self.person.take_action([2,y])
+                interval = 3
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
+                    self.person.take_action([1,y])
                     y *= -1
-                    rospy.sleep(2)
+                    rospy.sleep(interval)
             else:
-                self.person.take_action([2,0])
+                for i in range(EnvConfig.EPISODE_LEN):
+                    self.person.take_action([2,0])
+                    rospy.sleep(1)
                 
         else:
             counter = 0
