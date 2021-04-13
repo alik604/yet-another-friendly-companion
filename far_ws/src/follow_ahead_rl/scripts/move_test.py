@@ -4,7 +4,7 @@ import gym_gazeboros_ac
 from time import sleep
 
 ENV_NAME = 'gazeborosAC-v0'
-EPISODE_LEN = 15
+EPISODE_LEN = 5
 
 # Robot Chase Simulator 2021
 # How to use:
@@ -21,10 +21,10 @@ if __name__ == '__main__':
     env = gym.make(ENV_NAME).unwrapped
     env.set_agent(0)
 
-    mode = 0
+    mode = 4
     while True:
         env.set_person_mode(mode % 5)
-        mode += 1
+        # mode += 1
         state = env.reset()
 
 

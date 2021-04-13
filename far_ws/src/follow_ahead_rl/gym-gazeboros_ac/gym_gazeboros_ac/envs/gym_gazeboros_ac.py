@@ -77,7 +77,7 @@ class EnvConfig:
     PERSON_USE_MB = True
 
     # Episode Length
-    EPISODE_LEN = 15
+    EPISODE_LEN = 5
 
     # Returns Human State only in get_observations if True
     RETURN_HINN_STATE = True
@@ -823,9 +823,19 @@ class GazeborosEnv(gym.Env):
             idx_start = self.path_follower_test_settings[self.path_follower_current_setting_idx][1]
         else:
             idx_start = random.randint(0, len(self.path["points"]) - 20)
+        
         self.current_path_idx = idx_start
+
         if not self.is_use_test_setting and self.use_reverse and random.random() > 0.5:
             self.path["points"].reverse()
+
+        if self.person_use_move_base:
+            init_pos_person = {"pos": (0, 0), "orientation":math.pi}
+            random_pos_robot = self.find_random_point_in_circle(1.5, 2.5, init_pos_person["pos"])
+
+            init_pos_robot = {"pos": random_pos_robot, "orientation":random.uniform(0, math.pi)}
+            
+            return init_pos_robot, init_pos_person
 
         if self.is_evaluation_:
             init_pos_person = self.path["start_person"]
@@ -1029,7 +1039,7 @@ class GazeborosEnv(gym.Env):
 
         self.path_finished = False
         
-        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
+        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot, init_pos_person,))
         self.position_thread.daemon = True
         self.is_reseting = False
         self.position_thread.start()
@@ -1182,37 +1192,43 @@ class GazeborosEnv(gym.Env):
     def set_robot_to_auto(self):
         self.robot_mode = 1
 
+    def respect_orientation(self, xy, orientation):
+        x = math.cos(orientation) * xy[0] - math.sin(orientation) * xy[1]
+        y = math.sin(orientation) * xy[0] + math.cos(orientation) * xy[1]
 
-    def path_follower(self, idx_start, robot):
+        return [x,y]
+
+    def path_follower(self, idx_start, robot, person_init_pose):
 
         """
         Move base person mode:
-        0: Attempt straight path (default)
         1: Attempt left curved path
         2: Attempt right curved path
         3: Random
         4: Zig zag
+        0/default: Attempt straight path
         """
         if self.person_use_move_base:
             print(f"person_mode = {self.person_mode}")
+
                            
             if self.person_mode == 1:
                 for i in range(EnvConfig.EPISODE_LEN):
-                    self.person.take_action([0.5,i*0.5])
+                    action = [0.5,i*0.5]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+                    self.person.take_action(action)
                     rospy.sleep(1)
             elif self.person_mode == 2:
                 for i in range(EnvConfig.EPISODE_LEN):
-                    self.person.take_action([0.5,-i * 0.5])
+                    action = [0.5,-i * 0.5]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+                    self.person.take_action(action)
                     rospy.sleep(1)
             elif self.person_mode == 3:
                 interval = 5
                 for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
-                    x = random.random()
-                    y = random.random()
-                    if random.randint(0,1) == 0:
-                        x *= -1
-                    if random.randint(0,1) == 0:
-                        y *= -1
+                    x = random.uniform(-1,1)
+                    y = random.uniform(-1,1)
 
                     self.person.take_action([x, y])
                     rospy.sleep(interval)
@@ -1220,12 +1236,16 @@ class GazeborosEnv(gym.Env):
                 y = 0.5
                 interval = 3
                 for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
-                    self.person.take_action([1,y])
+                    action = [1,y]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+                    self.person.take_action(action)
                     y *= -1
                     rospy.sleep(interval)
             else:
                 for i in range(EnvConfig.EPISODE_LEN):
-                    self.person.take_action([2,0])
+                    action = [2,0]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+                    self.person.take_action(action)
                     rospy.sleep(1)
                 
         else:
