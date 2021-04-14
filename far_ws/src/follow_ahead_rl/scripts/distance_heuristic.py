@@ -1,7 +1,7 @@
 
 import math
 import gym
-from time import sleep
+import time
 
 import gym_gazeboros_ac
 
@@ -22,20 +22,6 @@ class DistanceHeuristic:
 
         return [x,y]
 
-    # Args:
-    # target_predicted_state: [x,y,theta]
-    # obstacle_states: [(xy and size)]
-    def calculate_goal(self, target_predicted_state, obstacle_states):
-        vector = [self.target_distance, 0]
-        # vector = self.rotate_vector(vector, target_predicted_state[2])
-        vector = self.rotate_vector(vector, math.pi/2)
-
-        # TODO: Deal with obstacles
-
-        goal = [target_predicted_state[0] + vector[0], target_predicted_state[1] + vector[1]]
-
-        return goal
-    
     # Args:
     # target_predicted_state: [x,y,theta]
     # obstacle_states: [(xy and size)]
@@ -61,8 +47,8 @@ if __name__ == '__main__':
         mode += 1
         state = env.reset()
 
-
-        for i in range(EPISODE_LEN * 10):
+        # Currently set to run for 15 seconds
+        for i in range(EPISODE_LEN * 5):
             person_state = env.get_person_pos()
 
             action = dis_heuristic.calculate_vector(person_state, [])
@@ -70,7 +56,7 @@ if __name__ == '__main__':
             state, reward, done, _ = env.step(action)
             # print(state)
 
-            sleep(0.1)
+            time.sleep(0.1)
 
     
     print("END")

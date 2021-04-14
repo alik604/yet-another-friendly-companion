@@ -1269,6 +1269,7 @@ class GazeborosEnv(gym.Env):
                     y *= -1
                     rospy.sleep(interval)
             else:
+                # 0/Default: Straight path
                 for i in range(EnvConfig.EPISODE_LEN):
                     action = [2,0]
                     action = self.respect_orientation(action, person_init_pose["orientation"])
