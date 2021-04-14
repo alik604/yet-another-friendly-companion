@@ -43,13 +43,14 @@ class WorldModel(nn.Module):
     self.act_dim = act_dim 
     self.hid_dim = hid_dim
 
-    self.lstm = nn.LSTMCell(obs_dim+act_dim, hid_dim)
+    self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim)
     self.mu = nn.Linear(hid_dim, obs_dim)
     self.logsigma = nn.Linear(hid_dim, obs_dim)
 
   def forward(self, obs, act, hid):
+    
     x = pt.cat([obs, act], dim=-1)
-    h, c = self.lstm(x, hid)
+    h, c = self.rnn(x, hid)
     mu = self.mu(h)
     sigma = pt.exp(self.logsigma(h))
     return mu, sigma, (h, c)
@@ -74,6 +75,14 @@ class Phenotype(nn.Module):
       start = end
 '''
 class Controller(nn.Linear, nn.Module):
+  #def __init__(self):
+  #    self.time_factor = TIME_FACTOR
+  #    self.noise_bias = NOISE_BIAS
+  #    self.output_noise=OUTPUT_NOISE
+  #    self.activations = activations
+  #    self.output_size = OUTPUT_SIZE
+
+
   def forward(self, obs, h):
     print("we are in controller class?")
     state = pt.cat([obs, h], dim=-1)
@@ -455,28 +464,7 @@ class ValueLogger:
     ax.plot(steps, values)
     plt.savefig(self.name + '.png')
     plt.close(fig=fig)
-'''    
-class NormalizedActions(gym.ActionWrapper):
-
-    def _action(self, action):
-        low  = self.action_space.low
-        high = self.action_space.high
-
-        action = low + (action + 1.0) * 0.5 * (high - low)
-        action = np.clip(action, low, high)
-
-        return action
-
-    def _reverse_action(self, action):
-        low  = self.action_space.low
-        high = self.action_space.high
-
-        action = 2 * (action - low) / (high - low) - 1
-        action = np.clip(action, low, high)
-
-        return action
-'''
-
+    
 if __name__ == '__main__':
   print("hello world???")
   np.random.seed(0)
@@ -493,6 +481,8 @@ if __name__ == '__main__':
   rnn = WorldModel(obs_dim, act_dim) # WE get our RNN with LSTM --> initialize
   ctrl = Controller(obs_dim+rnn.hid_dim, act_dim) # we get our controller 
   print("what is in the controller?", ctrl)
+
+  
   # Adjust population size based on the number of available CPUs.
   num_workers = 1
   agents_per_worker = 1
