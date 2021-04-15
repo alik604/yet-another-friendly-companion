@@ -1097,7 +1097,11 @@ class GazeborosEnv(gym.Env):
         # Set positions of robots and obstacles
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
-        self.set_obstacle_pos(init_pos_robot, init_pos_person)
+
+        if EnvConfig.TRAIN_HINN:
+            self.set_obstacle_pos(init_pos_person, init_pos_robot)
+        else:
+            self.set_obstacle_pos(init_pos_robot, init_pos_person)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)

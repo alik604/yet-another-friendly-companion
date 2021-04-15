@@ -16,13 +16,13 @@ import gym_gazeboros_ac
 
 from HumanIntentNetwork import HumanIntentNetwork
 
-TRAIN_ON_ONLY_NEW = False # and saves only new. this is because I commented out 2 lines
+TRAIN_ON_ONLY_NEW = True
 
 ENV_NAME = 'gazeborosAC-v0'
 RANDOMSEED = 42
 
 EPISODES = 100  # 1000     # Simulations
-STEPS_PER_EPI = 150
+STEPS_PER_EPI = 45
 EPOCHS = 10  # 1000     # Training
 BATCH_SIZE = 64
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -71,16 +71,14 @@ if __name__ == '__main__':
             xy = env.get_person_pos()
             next_state = [xy[0], xy[1], state[2]]
             list_of_human_state_next.append(next_state)
-            print(f"Next human state: {human_state_next}")
+            # print(f"Next human state: {next_state}")
 
-        print(f'Finished Episode {i}')
     env.close()
 
     # print(f'Before: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
 
     if TRAIN_ON_ONLY_NEW:
         # deep copy and have parallel
-        cuttoff = len(list_of_human_state_next)
         COPY_list_of_human_state_ = list_of_human_state.copy()
         COPY_list_of_human_state_next_ = list_of_human_state_next.copy()
 
