@@ -1676,7 +1676,7 @@ class GazeborosEnv(gym.Env):
 
         episode_over = False
 
-        if not EnvConfig.RETURN_HINN_STATE
+        if not EnvConfig.RETURN_HINN_STATE:
             rel_person = GazeborosEnv.get_relative_heading_position(self.robot, self.person)[1]
 
             distance = math.hypot(rel_person[0], rel_person[1])
