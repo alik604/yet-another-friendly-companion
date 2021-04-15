@@ -22,7 +22,7 @@ ENV_NAME = 'gazeborosAC-v0'
 RANDOMSEED = 42
 
 EPISODES = 100  # 1000     # Simulations
-STEPS_PER_EPI = 20
+STEPS_PER_EPI = 150
 EPOCHS = 10  # 1000     # Training
 BATCH_SIZE = 64
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -35,7 +35,7 @@ if __name__ == '__main__':
     torch.manual_seed(RANDOMSEED)
     np.random.seed(RANDOMSEED)
 
-    state_dim = 23  # env.observation_space.shape[0] # not updated
+    state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     print(f'State_dim:  {state_dim}')
     print(f'Action_dim: {action_dim}')
@@ -46,55 +46,37 @@ if __name__ == '__main__':
     if TRAIN_ON_ONLY_NEW:
         list_of_human_state = []
         list_of_human_state_next = []
-    else: # if error, make `TRAIN_ON_ONLY_NEW = True1, 
+    else:
         list_of_human_state = pd.read_csv(save_local_1).values.tolist()
         list_of_human_state_next = pd.read_csv(save_local_2).values.tolist()
 
     for i in range(EPISODES):
-        # env.set_obstacle_pos("obstacle_box", 0.5, 0, 0)
         state = env.reset()
 
-        # Prints out x y position of person
-        # print(f"person pose = {env.get_person_pos()}") # human state x,y,z
-        # print(state)
         max_itr = STEPS_PER_EPI
         while max_itr > 0:
             max_itr -= 1
-            # [random.uniform(-1, 1), random.uniform(-1, 1)]
-            action = [-50, 50]
-            print(action)
 
-            # state[2] is oriantation.
+            action = [0,0]
             state, reward, done, _ = env.step(action)
-            # if done:    break
+
             human_state = list(state)
             list_of_human_state.append(human_state)
             # print(f"person pose: {human_state}")
 
-            time_to_sleep = np.random.choice([0.075, 0.01, 0.0125, 0.015], 1)
-            sleep(time_to_sleep[0])
+            sleep(0.1)
 
             state, reward, done, _ = env.step(action)
-            # if done:    break # will need to discard non-parallel end
 
             xy = env.get_person_pos()
             next_state = [xy[0], xy[1], state[2]]
             list_of_human_state_next.append(next_state)
-            # print(f"person pose: {human_state_next}")
+            print(f"Next human state: {human_state_next}")
 
-            # Prints out system velocities
-            # print(f"system_velocities = {env.get_system_velocities()}")
-
-        if i % 1 == 0:  # i > 0 and
-            print(f'\n\n\n It has been {i} Simulations \n\n\n')
+        print(f'Finished Episode {i}')
     env.close()
 
-    print(
-        f'Before: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
-    # discard non-parallel end
-    cuttoff = min(len(list_of_human_state), len(list_of_human_state_next))
-    list_of_human_state = list_of_human_state[:cuttoff]
-    list_of_human_state_next = list_of_human_state_next[:cuttoff]
+    # print(f'Before: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
 
     if TRAIN_ON_ONLY_NEW:
         # deep copy and have parallel
@@ -118,8 +100,7 @@ if __name__ == '__main__':
         _ = pd.DataFrame(list_of_human_state_next).to_csv(
             save_local_2, header=False, index=False)
 
-    print(
-        f'After: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
+    # print(f'After: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
 
     model = HumanIntentNetwork(inner=128, input_dim=23, output_dim=3)
     model.load_checkpoint()
@@ -131,9 +112,7 @@ if __name__ == '__main__':
     # TODO shuffle data, in a parallel manner
 
     list_of_human_state = torch.Tensor(list_of_human_state).to(device)
-    list_of_human_state_next = torch.Tensor(
-        list_of_human_state_next).to(device)
-    # print(list_of_human_state.size(0))
+    list_of_human_state_next = torch.Tensor(list_of_human_state_next).to(device)
 
     losses = []
     for epoch in range(EPOCHS):
