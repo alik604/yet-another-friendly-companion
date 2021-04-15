@@ -126,8 +126,35 @@ class RNN(nn.Module):
         #sigma = torch.exp(self.logsigma(h))
         #return mu, sigma, (h, c)
         #return out, hid
+'''
+class Controller(nn.Linear, nn.Module):
+  #def __init__(self):
+  #    self.time_factor = TIME_FACTOR
+  #    self.noise_bias = NOISE_BIAS
+  #    self.output_noise=OUTPUT_NOISE
+  #    self.activations = activations
+  #    self.output_size = OUTPUT_SIZE
 
 
+  def forward(self, obs, h):
+    print("we are in controller class?")
+    state = pt.cat([obs, h], dim=-1)
+    return pt.tanh(super().forward(state))
+
+  def genotype(self):
+      print(self.parameters())
+      print("we are in genotype function?")
+      params = [p.detach().view(-1) for p in self.parameters()]
+      return pt.cat(params, dim=0).cpu().numpy()
+
+  def load_genotype(self, params):
+    start = 0
+    for p in self.parameters():
+      end = start + p.numel()
+      new_p = pt.from_numpy(params[start:end])
+      p.data.copy_(new_p.view(p.shape).to(p.device))
+      start = end
+'''
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -202,7 +229,7 @@ for i_episode in range(num_episodes):
     ls.append(state)
     loss = 0.0
     obs_batch, next_obs_batch = ls[:-1],ls[1:]
-    for t in count():
+    for i in range(0, 10):
         # Select and perform an action
         #need to get state data and make a sequence of the state data 
         #zero pre-padding 
@@ -264,7 +291,8 @@ for i_episode in range(num_episodes):
 
         state = ls[:-1][0]
     losses.append(val)
-
+filename='my_rnn.pt'
+torch.save(model.state_dict(), filename)
 print("idk")
 #next_action = select_action(state, action, hid)
 #next_state, reward, done, _ = env.step(action)
@@ -285,3 +313,199 @@ if done:
     plot_durations()
     break
 '''
+
+
+######### note sure about these classes/functions #####################
+class EvolutionStrategy:
+  # Wrapper for CMAEvolutionStrategy
+  def __init__(self, mu, sigma, popsize, weight_decay=0.01):
+    self.es = CMAEvolutionStrategy(mu.tolist(), sigma, {'popsize': popsize})
+    self.weight_decay = weight_decay
+    self.solutions = None
+
+  @property
+  def best(self):
+    best_sol = self.es.result[0]
+    best_fit = -self.es.result[1]
+    return best_sol, best_fit
+
+  def _compute_weight_decay(self, model_param_list):
+    model_param_grid = np.array(model_param_list)
+    return -self.weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
+
+  def ask(self):
+    self.solutions = self.es.ask()
+    return self.solutions
+
+  def tell(self, reward_table_result):
+    reward_table = -np.array(reward_table_result)
+    if self.weight_decay > 0:
+      l2_decay = self._compute_weight_decay(self.solutions)
+      reward_table += l2_decay
+    self.es.tell(self.solutions, reward_table.tolist())
+
+
+
+from collections import namedtuple
+
+TIME_FACTOR = 0
+NOISE_BIAS = 0
+OUTPUT_NOISE = [False, False, False, False]
+OUTPUT_SIZE = 4
+
+def activations(a):
+  a = np.tanh(a)
+  a[1] = (a[1] + 1) / 2
+  a[2] = (a[2] + 1) / 2
+  return a
+
+class Controller():
+    def __init__(self):
+        self.time_factor = TIME_FACTOR
+        self.noise_bias = NOISE_BIAS
+        self.output_noise=OUTPUT_NOISE
+        self.activations=activations
+        self.output_size = OUTPUT_SIZE
+    
+    def forward(self, obs, h):
+        #print("we are in controller class?")
+        state = pt.cat([obs, h], dim=-1)
+        return pt.tanh(super().forward(state))
+
+
+
+
+
+
+def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='my_ctrl.pt', logger=None):
+  best_sol = None
+  best_fit = -np.inf
+
+  gen_pbar = tqdm(range(num_gen))
+  for g in gen_pbar:
+    # upload individuals
+    inds = es.ask()
+    success = pop.upload_ctrl(inds)
+    assert success
+
+    # evaluate
+    fits, success = pop.evaluate()
+    assert success
+    
+    # update
+    es.tell(fits)
+    best_sol, best_fit = es.best
+    gen_pbar.set_description('best=' + str(best_fit))
+
+    if logger is not None:
+      logger.push(best_fit)
+
+  ctrl.load_genotype(best_sol)
+  pt.save(ctrl.state_dict(), filename)
+
+def random_rollout(env, seq_len=1600):
+  obs_dim = env.observation_space.shape[0]
+  act_dim = env.action_space.n
+
+  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
+  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
+  
+  obs = env.reset()
+  obs_data[0] = obs
+  for t in range(seq_len):
+    act = env.action_space.sample()
+    obs, rew, done, _ = env.step(act)
+    obs_data[t+1] = obs
+    act_data[t] = act
+    if done:
+      obs = env.reset()
+
+  return obs_data, act_data
+
+def rollout(env, rnn, ctrl, seq_len=1600, render=False):
+  obs_dim = env.observation_space.shape[0]
+  act_dim = env.action_space.shape[0]
+
+  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
+  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
+  
+  obs = env.reset()
+  hid = (pt.zeros(1, rnn.hid_dim), # h
+         pt.zeros(1, rnn.hid_dim)) # c
+
+  obs_data[0] = obs
+  for t in range(seq_len):
+    if render:
+      env.render()
+    obs = pt.from_numpy(obs).unsqueeze(0)
+    with pt.no_grad():
+      act = ctrl(obs, hid[0])
+      _, _, hid = rnn(obs, act, hid)
+
+    act = act.squeeze().numpy()
+    obs, rew, done, _ = env.step(act)
+    obs_data[t+1] = obs
+    act_data[t] = act
+    if done:
+      obs = env.reset()
+
+  return obs_data, act_data
+
+def evaluate(env, rnn, ctrl, num_episodes=5, max_episode_steps=1600):
+  fitness = 0.0
+ 
+  for ep in range(num_episodes):
+    # Initialize observation and hidden states.
+    obs = env.reset()
+    hid = (pt.zeros(1, rnn.hid_dim), # h
+           pt.zeros(1, rnn.hid_dim)) # c
+
+    for t in range(max_episode_steps):
+      obs = pt.from_numpy(obs).unsqueeze(0)
+      with pt.no_grad():
+        # Take an action with the controller.
+        act = ctrl(obs, hid[0])
+
+        # Predict the next observation with the RNN.
+        _, _, hid = rnn(obs, act, hid)
+
+      # Take a step in the environment.
+      act = act.squeeze().numpy()
+      obs, rew, done, _ = env.step(act)
+
+      fitness += rew
+      if done:
+        break
+
+  return fitness / num_episodes
+
+
+
+# Iteratively update controller and RNN.
+for i in range(args.niter):
+    # Evolve controllers with the trained RNN.
+    print("Iter." + str(i) + ": Evolving C model...")
+    es = EvolutionStrategy(global_mu, args.sigma0, popsize)
+    evolve_ctrl(ctrl, es, num_gen=args.num_gen, logger=best_logger)
+    best_logger.plot('C model evolution', 'gen', 'fitness')
+
+    # Update the global best individual and upload them.
+    global_mu = np.copy(ctrl.genotype)
+    #success = pop.upload_ctrl(global_mu, noisy=True)
+    #assert success
+
+    # Train the RNN with the current best controller.
+    print("Iter." + str(i) + ": Training M model...")
+    #train_rnn(rnn, optimizer, random_policy=False,
+    #    num_rollouts=args.num_rollouts, logger=loss_logger)
+    #loss_logger.plot('M model training loss', 'step', 'loss')
+
+    # Upload the trained RNN.
+    #success = pop.upload_rnn(rnn.cpu())
+    #assert success
+
+    # Test run!
+    rollout(env, rnn, ctrl, render=True)
+
+success = pop.close()
+assert success
