@@ -574,14 +574,19 @@ class GazeborosEnv(gym.Env):
 
         self.test_simulation_ = False
 
-        observation_dimentation = 46
+        observation_dimensions = 46
         if self.use_orientation_in_observation:
-            observation_dimentation += 1
+            observation_dimensions += 1
 
         if self.small_window_size:
-            observation_dimentation -= 20
+            observation_dimensions -= 20
 
-        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(observation_dimentation,))
+        if EnvConfig.RETURN_HINN_STATE:
+            observation_dimensions = 23
+            if EnvConfig.USE_OBSTACLES:
+                observation_dimensions += EnvConfig.SCAN_REDUCTION_SIZE
+
+        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(observation_dimensions,))
         self.current_obsevation_image_ = np.zeros([2000,2000,3])
         self.current_obsevation_image_.fill(255)
 
