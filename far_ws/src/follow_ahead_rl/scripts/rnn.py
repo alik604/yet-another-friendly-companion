@@ -5,6 +5,8 @@ import torch.optim as optim
 from torch.distributions.normal import Normal
 from torch.autograd import Variable
 
+from torch import nn, optim, distributions
+
 import numpy as np
 import gym
 import random
@@ -67,15 +69,23 @@ class RNN(nn.Module):
         self.reward = reward
         self.learning_r = LR 
         gmm_out = (2*obs_dim+1) *gaussian + 2
+
         self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim) 
-        self.dropout = nn.Dropout(drop_prob)
-        self.fc = nn.Linear(hid_dim, gmm_out)
-        self.sigmoid = nn.Sigmoid()
+        #self.dropout = nn.Dropout(drop_prob)
+        #self.fc = nn.Linear(hid_dim, gmm_out)
+        #self.sigmoid = nn.Sigmoid()
+        self.mu = nn.Linear(hid_dim, obs_dim)
         self.logsigma = nn.Linear(hid_dim, obs_dim)
     
     def forward(self, obs, act, hid=64):
-        
+
+        print("the observations are:", obs)
+        print("the actions are", act)
+        '''
+        print(hid)
         x = torch.cat([act, obs], dim=-1)
+        print("the concatenated result:", x)
+        #exit(-1)
         lstm_out, hidden = self.rnn(x, hid)
         gmm_outs = self.fc(lstm_out)
 
@@ -94,15 +104,15 @@ class RNN(nn.Module):
 
         return mus, sigma, logpi
         '''
-        print("the action is:, ", torch.from_numpy(np.array([act, 0])))
-        act = torch.tensor([act])
-        print("the state is :, ", obs)
-        x = torch.cat([obs, act], dim=-1)
+        #print("the action is:, ", torch.from_numpy(np.array([act, 0])))
+        #act = torch.tensor([act])
+        #print("the state is :, ", obs)
+        x = torch.cat([act, obs], dim=-1)
         h, c = self.rnn(x, hid)
-        mu = self.fc(h)
-        sigma = self.exp(self.logsigma(h))
+        mu = self.mu(h)
+        sigma = torch.exp(self.logsigma(h))
         return mu, sigma, (h, c)
-        '''
+    
         #lstm_out = lstm_out.contiguous().view(-1, self.hidden) #TODO check if this is needed
 
         #out = self.dropout(lstm_out)
@@ -160,6 +170,7 @@ obs_dim = env.observation_space.shape[0] #this is for the lunar lander environme
 #act_dim = env.action_space.shape[0]
 act_dim = env.action_space.n
 
+print("obs_dim + act_dim", obs_dim+act_dim)
 #print("Initializing agent (device=" +  str(device)  + ")...")
 model = RNN(obs_dim, act_dim, 5)
 
@@ -169,7 +180,8 @@ model.to(device)
 params = [p for p in model.parameters() if p.requires_grad]
 
 optimizer = optim.RMSprop(model.parameters())
-memory = ReplayMemory(10000)
+criterion = torch.nn.MSELoss()
+#memory = ReplayMemory(10000)
 
 
 
@@ -178,32 +190,80 @@ memory = ReplayMemory(10000)
 #memory = ReplayMemory(10000)
 
 
-
+batch_size = 1
+ls = []
 losses = []
 num_episodes = 10
 for i_episode in range(num_episodes):
     # Initialize the environment and state
     state = env.reset()
+    hid = (torch.zeros(batch_size, model.hidden).to(device),torch.zeros(batch_size, model.hidden).to(device))
+    #state = torch.from_numpy(np.array([state]))
+    ls.append(state)
+    loss = 0.0
+    obs_batch, next_obs_batch = ls[:-1],ls[1:]
     for t in count():
         # Select and perform an action
-        state = torch.from_numpy(state)
+        #need to get state data and make a sequence of the state data 
+        #zero pre-padding 
+        '''
+        np.array([
+            np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step])
+            ,np.array(state_at_a_time_step]) #current one should be very last timestep 
+            ])
+        '''
+        #seq_len = look back window
+        #       #if len(state_array)== 10:
+        #    then pred = model.forward(state_array, action, hid )
+        #else: 
+        #    state 
+        #    action = [0]
+        #ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+        #env = new env 
 
-        hid = 64
+       # while True:
+       #     state = env.step()
+       #     ls.append(state)
+
+       # input = ls[:-10] # 9 zeros, and new state #look at engineer man on youtube!!!! sentence generation and lyric generation
+
+       # lstm(input)
+
+
+       # if env is done:
+        #    break
+        #LSTM expects 3D input
+        state = torch.from_numpy(np.array([state]))
+        
+        ls.append(state)
+        print("nextobservation looks like:,", ls[1:])
+        next_obs = ls[1:]
+        next_obs = next_obs[0]
+
+        act_batch = len(ls)
         #action = env.action_space.sample()
         #action = torch.stack(action).to(device)
-        action =torch.from_numpy(np.array( [-50, 50]))
+        action = torch.tensor([[0,0 ,0 ,0]])
         print(action)
-        pred = model.forward(state, action, hid )
-        optimizer.zero_grad()
+        mu, sigma, hid = model.forward(state, action, hid)
+        print("this is what mu looks like:", mu)
+        print("this is what sigma looks like:", sigma)
+        dist = distributions.Normal(loc=mu, scale=sigma)
+        nll = -dist.log_prob(next_obs) # negative log-likelihood
+        nll = torch.mean(nll, dim=-1)     # mean over dimensions
+        nll = torch.mean(nll, dim=0)      # mean over batch
+        loss += nll
+        loss = loss / len(ls)     # mean over trajectory
+        val = loss.item()
 
-        mus, sigmas, logpi = mdnrnn(action, latent_obs)
-
-        # compute loss
-        loss = gmm_loss(next_latent_obs, mus, sigmas, logpi)
-        loss.backward()
-        loss_train += loss.item()
-    
-    losses.append(loss_train)
+        state = ls[:-1][0]
+    losses.append(val)
 
 print("idk")
 #next_action = select_action(state, action, hid)
