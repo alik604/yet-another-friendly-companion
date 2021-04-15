@@ -4,11 +4,36 @@
   <arg name="box"  default="$(find follow_ahead_rl)/urdf/obstacle_urdfs/box.urdf"/>
   <arg name="cylinder"  default="$(find follow_ahead_rl)/urdf/obstacle_urdfs/cylinder.urdf"/>
 
-  <node name="spawn_box_model" pkg="gazebo_ros" type="spawn_model" ns="ob_ns_$(arg identifier)"
+  <arg name="ns" default="ns0"/>
+
+  <node name="spawn_box_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg ns)_$(arg identifier)"
     args="-x 0.5 -y 0 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg box) -model obstacle_box_$(arg identifier)"
   />
 
-  <node name="spawn_cylinder_model" pkg="gazebo_ros" type="spawn_model" ns="ob_ns_$(arg identifier)"
+  <node name="spawn_cylinder_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg ns)_$(arg identifier)"
     args="-x 1 -y 1 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg cylinder) -model obstacle_cylinder_$(arg identifier)"
   />
+
+  <group>
+    <arg name="diff" default="ns1"/>
+    <node name="spawn_box_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg diff)_$(arg identifier)"
+      args="-x 0.5 -y 0 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg box) -model obstacle_box_$(arg diff)_$(arg identifier)"
+    />
+
+    <node name="spawn_cylinder_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg diff)_$(arg identifier)"
+      args="-x 1 -y 1 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg cylinder) -model obstacle_cylinder_$(arg diff)_$(arg identifier)"
+    />
+  </group>
+
+  <group>
+    <arg name="diff" default="ns2"/>
+    <node name="spawn_box_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg diff)_$(arg identifier)"
+      args="-x 0.5 -y 0 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg box) -model obstacle_box_$(arg diff)_$(arg identifier)"
+    />
+
+    <node name="spawn_cylinder_model" pkg="gazebo_ros" type="spawn_model" ns="ob_$(arg diff)_$(arg identifier)"
+      args="-x 1 -y 1 -z 0 -R 0 -P 0 -Y 0 -urdf -file $(arg cylinder) -model obstacle_cylinder_$(arg diff)_$(arg identifier)"
+    />
+  </group>
+  
 </launch>

@@ -62,7 +62,7 @@ class EnvConfig:
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
     # 1: Places obstacles randomly within circle
-    OBSTACLE_MODE = 0
+    OBSTACLE_MODE = 1
 
     # Radius(meters) away from person robot for random placement(mode 1) of objects
     OBSTACLE_RADIUS_AWAY = 3
@@ -800,7 +800,7 @@ class GazeborosEnv(gym.Env):
                 orientation = euler[0]
 
             fall_angle = np.deg2rad(90)
-            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1: # TODO consider relaxing constraint from 0.1. 
+            if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1:
                 self.fallen = True
             # get velocity
             twist = states_msg.twist[model_idx]
@@ -1466,7 +1466,8 @@ class GazeborosEnv(gym.Env):
             relative = GazeborosEnv.get_relative_position(pos, self.robot.relative)
             pos_rel.append(relative)
         pos_history = np.asarray(np.asarray(pos_rel)).flatten()/6.0
-        #TODO: make the velocity normalization better
+        
+        
         velocities = np.concatenate((person_vel, robot_vel))/self.robot.max_angular_vel
         if self.use_orientation_in_observation:
             velocities_heading = np.append(velocities, heading_relative)
@@ -1483,7 +1484,6 @@ class GazeborosEnv(gym.Env):
         return final_ob
 
     def __del__(self):
-        # todo
         return
 
     def visualize_observation(self):
@@ -1674,38 +1674,38 @@ class GazeborosEnv(gym.Env):
              reward = self.get_reward()
         ob = self.get_observation()
 
-        # TODO: Adapt
         episode_over = False
-        # rel_person = GazeborosEnv.get_relative_heading_position(self.robot, self.person)[1]
 
-        # distance = math.hypot(rel_person[0], rel_person[1])
-        # if self.path_finished:
-        #     rospy.loginfo("path finished")
-        #     episode_over = True
-        # if self.is_collided():
-        #     self.update_observation_image()
-        #     episode_over = True
-        #     rospy.loginfo('collision happened episode over')
-        #     reward -= 0.5 # maybe remove less when in start of leaning 
-        # elif distance > 5:
-        #     self.update_observation_image()
-        #     self.is_max_distance = True
-        #     episode_over = True
-        #     rospy.loginfo('max distance happened episode over')
-        # elif self.number_of_steps > self.max_numb_steps:
-        #     self.update_observation_image()
-        #     episode_over = True
-        # if self.fallen:
-        #     episode_over = True
-        #     rospy.loginfo('fallen')
+        if not EnvConfig.RETURN_HINN_STATE
+            rel_person = GazeborosEnv.get_relative_heading_position(self.robot, self.person)[1]
+
+            distance = math.hypot(rel_person[0], rel_person[1])
+            if self.path_finished:
+                rospy.loginfo("path finished")
+                episode_over = True
+            if self.is_collided():
+                self.update_observation_image()
+                episode_over = True
+                rospy.loginfo('collision happened episode over')
+                reward -= 0.5 # maybe remove less when in start of leaning 
+            elif distance > 5:
+                self.update_observation_image()
+                self.is_max_distance = True
+                episode_over = True
+                rospy.loginfo('max distance happened episode over')
+            elif self.number_of_steps > self.max_numb_steps:
+                self.update_observation_image()
+                episode_over = True
+            if self.fallen:
+                episode_over = True
+                rospy.loginfo('fallen')
         reward = min(max(reward, -1), 1)
-        
         
         if self.agent_num == 0:
             rospy.loginfo("action {} reward {}".format(action, reward))
         
-        # if episode_over:
-        #     self.person.reset = True
+        if episode_over and not EnvConfig.RETURN_HINN_STATE:
+            self.person.reset = True
         #reward += 1
         return ob, reward, episode_over, {}
 
