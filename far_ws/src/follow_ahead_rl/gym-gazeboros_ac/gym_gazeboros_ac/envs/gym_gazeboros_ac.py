@@ -82,10 +82,14 @@ class EnvConfig:
     # Returns Human State only in get_observations if True
     RETURN_HINN_STATE = True
 
+    # Size to reduce laser scan to
     SCAN_REDUCTION_SIZE = 20
 
     # If True, calls init_simulator() on set_agent() call
     INIT_SIM_ON_AGENT = False
+
+    # Moves robot out of the way if true
+    TRAIN_HINN = True
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -890,7 +894,9 @@ class GazeborosEnv(gym.Env):
             self.path["points"].reverse()
 
         if self.person_use_move_base:
-            init_pos_person = {"pos": (0, 0), "orientation":random.uniform(0, math.pi)}
+            x = random.uniform(-3,3)
+            y = random.uniform(-3,3)
+            init_pos_person = {"pos": (x, y), "orientation":random.uniform(0, math.pi)}
             random_pos_robot = self.find_random_point_in_circle(1.5, 2.5, init_pos_person["pos"])
 
             init_pos_robot = {"pos": random_pos_robot, "orientation":random.uniform(0, math.pi)}
@@ -1085,9 +1091,8 @@ class GazeborosEnv(gym.Env):
         # else:
         self.prev_action = (0,0)
 
-        # TODO: Override TESTING ONLY
-        # init_pos_person = {"pos": (0, 0), "orientation": 0}
-        # init_pos_robot = {"pos": (15,0), "orientation": 0}
+        if EnvConfig.TRAIN_HINN:
+            init_pos_robot = {"pos": (30,30), "orientation": 0}
 
         # Set positions of robots and obstacles
         self.set_pos(self.robot.name, init_pos_robot)
