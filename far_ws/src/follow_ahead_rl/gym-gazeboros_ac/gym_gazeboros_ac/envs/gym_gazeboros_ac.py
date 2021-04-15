@@ -539,7 +539,8 @@ class GazeborosEnv(gym.Env):
         self.use_obstacles = EnvConfig.USE_OBSTACLES
         self.obstacle_mode = EnvConfig.OBSTACLE_MODE
         self.obstacle_names = []
-
+        
+        self.person_scan = None
         self.person_use_move_base = EnvConfig.PERSON_USE_MB
         self.person_mode = 0
         self.position_thread = None
@@ -678,11 +679,44 @@ class GazeborosEnv(gym.Env):
 
         self.state_cb_prev_time = None
         self.model_states_sub = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_cb)
+        self.scan_sub = rospy.Subscriber("/person_{}/scan".format(self.agent_num), LaserScan, self.scan_cb)
 
         if EnvConfig.INIT_SIM_ON_AGENT:
             with self.lock:
                 self.init_simulator()
     
+    def scan_cb(self, msg):
+        reduced_size = 20
+        div = int(len(msg.ranges)/reduced_size)
+        reduced_scan = []
+
+        count = 0
+        a_size = 0
+        avg = 0
+
+        # Reduce from 720 to reduced size
+        for r in msg.ranges:
+            if r > 0 and r < 20:
+                avg += r
+                a_size += 1
+            
+            count += 1
+            if count == div:
+                if a_size != 0:
+                    avg /= a_size
+                else:
+                    avg = math.inf
+
+                reduced_scan.append(avg)
+
+                count = 0
+                a_size = 0
+                avg = 0
+                
+
+        self.person_scan = reduced_scan
+        pass
+
     def create_obstacle_msg(self, name, pose):
         obstacle_msg = ObstacleMsg()
         obstacle_msg.id = 1
@@ -1008,7 +1042,7 @@ class GazeborosEnv(gym.Env):
         return (x, y)
 
     def set_obstacle_pos(self, init_pos_robot, init_pos_person):
-        obs_positions = self.get_obstacle_init_pos(init_pos_robot, init_pos_person)        
+        obs_positions = self.get_obstacle_init_pos(init_pos_robot, init_pos_person)       
         for obs_idx in range(len(self.obstacle_names)):
             self.set_pos(self.obstacle_names[obs_idx], obs_positions[obs_idx])
         
@@ -1043,7 +1077,7 @@ class GazeborosEnv(gym.Env):
         self.prev_action = (0,0)
 
         # TODO: Override TESTING ONLY
-        # init_pos_person = {"pos": (0, 0), "orientation": 3*math.pi/2}
+        # init_pos_person = {"pos": (0, 0), "orientation": 0}
         # init_pos_robot = {"pos": (15,0), "orientation": 0}
 
         # Set positions of robots and obstacles
