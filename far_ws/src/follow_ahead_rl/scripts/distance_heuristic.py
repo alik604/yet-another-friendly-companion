@@ -7,6 +7,7 @@ import gym_gazeboros_ac
 
 
 ENV_NAME = 'gazeborosAC-v0'
+NUM_EPISODES = 100
 EPISODE_LEN = 15
 
 
@@ -42,7 +43,7 @@ if __name__ == '__main__':
     dis_heuristic = DistanceHeuristic(target_distance=0.4)
 
     mode = 0
-    while True:
+    for i in range(NUM_EPISODES):
         env.set_person_mode(mode % 5)
         mode += 1
         state = env.reset()

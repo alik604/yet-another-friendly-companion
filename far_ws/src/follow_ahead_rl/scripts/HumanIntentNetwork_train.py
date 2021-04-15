@@ -50,7 +50,10 @@ if __name__ == '__main__':
         list_of_human_state = pd.read_csv(save_local_1).values.tolist()
         list_of_human_state_next = pd.read_csv(save_local_2).values.tolist()
 
+    mode = 0
     for i in range(EPISODES):
+        env.set_person_mode(mode % 5)
+        mode += 1
         state = env.reset()
 
         max_itr = STEPS_PER_EPI
@@ -81,10 +84,11 @@ if __name__ == '__main__':
         # deep copy and have parallel
         COPY_list_of_human_state_ = list_of_human_state.copy()
         COPY_list_of_human_state_next_ = list_of_human_state_next.copy()
-
+        
+        # TODO: WTF: Check existence before reading indiscriminately
         # extend copy with saved data
-        COPY_list_of_human_state_.extend(pd.read_csv(save_local_1).values.tolist())
-        COPY_list_of_human_state_next_.extend(pd.read_csv(save_local_2).values.tolist())
+        # COPY_list_of_human_state_.extend(pd.read_csv(save_local_1).values.tolist())
+        # COPY_list_of_human_state_next_.extend(pd.read_csv(save_local_2).values.tolist())
 
         # save data
         _ = pd.DataFrame(COPY_list_of_human_state_).to_csv(
@@ -100,41 +104,39 @@ if __name__ == '__main__':
 
     # print(f'After: {len(list_of_human_state)} | {len(list_of_human_state_next)}')
 
-    model = HumanIntentNetwork(inner=128, input_dim=23, output_dim=3)
+    model = HumanIntentNetwork(inner=128, input_dim=state_dim, output_dim=3)
     model.load_checkpoint()
     model.to(device)
 
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam((model.parameters()), lr=1e-3)
 
-    # TODO shuffle data, in a parallel manner
-
-    list_of_human_state = torch.Tensor(list_of_human_state).to(device)
-    list_of_human_state_next = torch.Tensor(list_of_human_state_next).to(device)
+    human_state_tensor = torch.Tensor(list_of_human_state).to(device)
+    next_human_state_tensor = torch.Tensor(list_of_human_state_next).to(device)
 
     losses = []
     for epoch in range(EPOCHS):
-        summer = 0
-        for i in range(0, list_of_human_state.size(0), BATCH_SIZE):
+        _sum = 0
+        for i in range(0, human_state_tensor.size(0), BATCH_SIZE):
             # print(f'{i} to {i+BATCH_SIZE}')
 
-            target = list_of_human_state_next[i: i+BATCH_SIZE]
-            input_batch = list_of_human_state[i: i+BATCH_SIZE]
+            target = next_human_state_tensor[i: i+BATCH_SIZE]
+            input_batch = human_state_tensor[i: i+BATCH_SIZE]
             pred = model.forward(input_batch)
 
             optimizer.zero_grad()
             loss = criterion(pred, target)
             loss.backward()
             optimizer.step()
-            summer += loss.item()
+            _sum += loss.item()
 
             # print(f'pred {pred}')
             # print(f'target {target}')
 
         if epoch % 100 == 0:
             model.save_checkpoint()
-        losses.append(summer)
-        print(f'Epoch {epoch} | Loss_sum {summer:.4f}')
+        losses.append(_sum)
+        print(f'Epoch {epoch} | Loss_sum {_sum:.4f}')
 
     model.save_checkpoint()
     plt.plot(losses)
