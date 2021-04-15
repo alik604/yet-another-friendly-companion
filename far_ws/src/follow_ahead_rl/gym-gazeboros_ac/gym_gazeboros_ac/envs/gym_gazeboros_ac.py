@@ -57,7 +57,7 @@ class EnvConfig:
     USE_TESTING = False
 
     # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = False
+    USE_OBSTACLES = True
 
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
@@ -81,6 +81,8 @@ class EnvConfig:
 
     # Returns Human State only in get_observations if True
     RETURN_HINN_STATE = True
+
+    SCAN_REDUCTION_SIZE = 20
 
     # If True, calls init_simulator() on set_agent() call
     INIT_SIM_ON_AGENT = False
@@ -540,7 +542,7 @@ class GazeborosEnv(gym.Env):
         self.obstacle_mode = EnvConfig.OBSTACLE_MODE
         self.obstacle_names = []
         
-        self.person_scan = None
+        self.person_scan = [math.inf for i in range(EnvConfig.SCAN_REDUCTION_SIZE)]
         self.person_use_move_base = EnvConfig.PERSON_USE_MB
         self.person_mode = 0
         self.position_thread = None
@@ -679,14 +681,16 @@ class GazeborosEnv(gym.Env):
 
         self.state_cb_prev_time = None
         self.model_states_sub = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_cb)
-        self.scan_sub = rospy.Subscriber("/person_{}/scan".format(self.agent_num), LaserScan, self.scan_cb)
+
+        if EnvConfig.USE_OBSTACLES:
+            self.scan_sub = rospy.Subscriber("/person_{}/scan".format(self.agent_num), LaserScan, self.scan_cb)
 
         if EnvConfig.INIT_SIM_ON_AGENT:
             with self.lock:
                 self.init_simulator()
     
     def scan_cb(self, msg):
-        reduced_size = 20
+        reduced_size = EnvConfig.SCAN_REDUCTION_SIZE
         div = int(len(msg.ranges)/reduced_size)
         reduced_scan = []
 
@@ -1467,6 +1471,9 @@ class GazeborosEnv(gym.Env):
 
         if EnvConfig.RETURN_HINN_STATE:
             final_ob = np.append(np.append(person_vel, heading_person), pos_his_person)
+
+            if EnvConfig.USE_OBSTACLES:
+                final_ob = np.append(final_ob, self.person_scan)
 
         return final_ob
 
