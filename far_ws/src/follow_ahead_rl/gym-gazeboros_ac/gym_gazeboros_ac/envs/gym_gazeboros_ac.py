@@ -89,7 +89,7 @@ class EnvConfig:
     INIT_SIM_ON_AGENT = False
 
     # If True, moves jackal bot out of the way and puts obstacles around person
-    TRAIN_HINN = False
+    TRAIN_HINN = True
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -546,7 +546,7 @@ class GazeborosEnv(gym.Env):
         self.obstacle_mode = EnvConfig.OBSTACLE_MODE
         self.obstacle_names = []
         
-        self.person_scan = [math.inf for i in range(EnvConfig.SCAN_REDUCTION_SIZE)]
+        self.person_scan = [1000.0 for i in range(EnvConfig.SCAN_REDUCTION_SIZE)]
         self.person_use_move_base = EnvConfig.PERSON_USE_MB
         self.person_mode = 0
         self.position_thread = None
