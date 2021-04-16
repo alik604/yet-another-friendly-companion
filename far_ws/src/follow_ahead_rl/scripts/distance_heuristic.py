@@ -14,7 +14,7 @@ EPISODE_LEN = 15
 class DistanceHeuristic:
     # Args:
     # target_distance: desired distance in front of target
-    def __init__(self, target_distance=0.5):
+    def __init__(self, target_distance=0.45):
         self.target_distance = target_distance
     
     def rotate_vector(self, xy, orientation):
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     env = gym.make(ENV_NAME).unwrapped
     env.set_agent(0)
     
-    dis_heuristic = DistanceHeuristic(target_distance=0.4)
+    dis_heuristic = DistanceHeuristic()
 
     mode = 0
     for i in range(NUM_EPISODES):
