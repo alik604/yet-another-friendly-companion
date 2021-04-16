@@ -52,8 +52,7 @@ if __name__ == '__main__':
     env.close()
 
     if ADDON_PREV_DATA:
-        dir_ls = os.listdir()
-        if save_local_1 in dir_ls and save_local_2 in dir_ls:
+        if os.path.isfile(save_local_1) and os.path.isfile(save_local_2):
             list_of_human_state = pd.read_csv(save_local_1).values.tolist()
             list_of_human_state_next = pd.read_csv(save_local_2).values.tolist()
         else:
