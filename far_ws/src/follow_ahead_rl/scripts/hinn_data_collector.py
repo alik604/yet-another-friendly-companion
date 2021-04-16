@@ -10,7 +10,7 @@ import gym_gazeboros_ac
 
 # Constants
 ENV_NAME = 'gazeborosAC-v0'
-N_EPISODES = 1
+N_EPISODES = 100
 STEPS_PER_EPISODE = 45
 ADDON_PREV_DATA = True
 
