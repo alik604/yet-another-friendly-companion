@@ -88,8 +88,8 @@ class EnvConfig:
     # If True, calls init_simulator() on set_agent() call
     INIT_SIM_ON_AGENT = False
 
-    # Moves robot out of the way if true
-    TRAIN_HINN = True
+    # If True, moves jackal bot out of the way and puts obstacles around person
+    TRAIN_HINN = False
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -700,6 +700,8 @@ class GazeborosEnv(gym.Env):
     
     def scan_cb(self, msg):
         reduced_size = EnvConfig.SCAN_REDUCTION_SIZE
+        large_n = 1000.0
+
         div = int(len(msg.ranges)/reduced_size)
         reduced_scan = []
 
@@ -718,7 +720,7 @@ class GazeborosEnv(gym.Env):
                 if a_size != 0:
                     avg /= a_size
                 else:
-                    avg = math.inf
+                    avg = large_n
 
                 reduced_scan.append(avg)
 
