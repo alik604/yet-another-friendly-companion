@@ -48,13 +48,12 @@ if __name__ == '__main__':
         # Currently set to run for 15 seconds
         for i in range(EPISODE_LEN * 5):
             state_tensor = torch.Tensor(state).to(device)
-            
             ps_prediction = model.forward(state_tensor)
 
             action = dis_heuristic.calculate_vector(ps_prediction, [])
             
             env.set_marker_pose([ps_prediction[0],ps_prediction[1]])
-            state, reward, done, _ = env.step(action)
             sleep(0.1)
+            state, reward, done, _ = env.step(action)
 
     print("END")
