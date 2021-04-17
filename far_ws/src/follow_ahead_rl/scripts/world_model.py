@@ -1,3 +1,56 @@
+# note we are not using this implementation. see `rnn.py` (hopefully renamed soon)
+''' TODO fix this error
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 315, in _bootstrap
+    self.run()
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "world_model.py", line 200, in worker
+    ind += rng.normal(scale=1e-3, size=ind.shape)
+TypeError: unsupported operand type(s) for +: 'method' and 'float'
+Traceback (most recent call last):
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 315, in _bootstrap
+    self.run()
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "world_model.py", line 200, in worker
+    ind += rng.normal(scale=1e-3, size=ind.shape)
+Traceback (most recent call last):
+TypeError: unsupported operand type(s) for +: 'method' and 'float'
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 315, in _bootstrap
+    self.run()
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "world_model.py", line 200, in worker
+    ind += rng.normal(scale=1e-3, size=ind.shape)
+TypeError: unsupported operand type(s) for +: 'method' and 'float'
+Traceback (most recent call last):
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 315, in _bootstrap
+    self.run()
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "world_model.py", line 200, in worker
+    ind += rng.normal(scale=1e-3, size=ind.shape)
+TypeError: unsupported operand type(s) for +: 'method' and 'float'
+Traceback (most recent call last):
+  File "world_model.py", line 527, in <module>
+    # Train the RNN with the current best controller.
+  File "world_model.py", line 250, in upload_ctrl
+    _, success = zip(*[p.recv() for p in self.pipes])
+  File "world_model.py", line 250, in <listcomp>
+    _, success = zip(*[p.recv() for p in self.pipes])
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/connection.py", line 414, in _recv_bytes
+    buf = self._recv(4)
+  File "/home/alik604/anaconda3/lib/python3.8/multiprocessing/connection.py", line 383, in _recv
+    raise EOFError
+EOFError
+
+'''
+
+
+
+
 import torch as pt
 import gym
 from torch import nn, optim, distributions
@@ -21,7 +74,7 @@ from cma import CMAEvolutionStrategy
 device = pt.device('cuda' if pt.cuda.is_available() else 'cpu')
 ###############################  hyper parameters  #########################
 #ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
-ENV_NAME = 'LunarLander-v2'
+ENV_NAME = 'LunarLanderContinuous-v2' #'LunarLander-v2'
 
 RANDOMSEED = 42  # random seed
  
@@ -84,7 +137,7 @@ class Controller(nn.Linear, nn.Module):
 
 
   def forward(self, obs, h):
-    print("we are in controller class")
+    # print("we are in controller class")
     state = pt.cat([obs, h], dim=-1)
     return pt.tanh(super().forward(state))
 
@@ -108,7 +161,7 @@ def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filen
     rnn.load_state_dict(pt.load(filename)) # TODO added by ali
     print(f'LSTM weights loaded')
   except Exception as e:
-    print(f'Error is loading wegihts, file might not be found or model may have changed\n{e}')
+    print(f'Error is loading weights, file might not be found or model may have changed\n{e}')
 
   rnn = rnn.train().to(device)
 
@@ -179,15 +232,15 @@ class Population:
     #env = BipedalWalker()
     #env = gym.make(ENV_NAME).unwrapped
     env = gym.make(ENV_NAME)
-    obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.n
+    # obs_dim = env.observation_space.shape[0]
+    # act_dim = env.action_space.n
 
     rnn = WorldModel(obs_dim, act_dim)
     ctrls = [Controller(obs_dim+rnn.hid_dim, act_dim) for _ in range(self.agents_per_worker)]
   
     while True:
       command, data = pipe.recv()
-      print("the command given is:", command)
+      # print("the command given is:", command)
 
       if command == 'upload_rnn': # data: rnn
         rnn.load_state_dict(data.state_dict())
@@ -348,8 +401,8 @@ def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
   pt.save(ctrl.state_dict(), filename)
 
 def random_rollout(env, seq_len=1600):
-  obs_dim = env.observation_space.shape[0]
-  act_dim = env.action_space.n
+  # obs_dim = env.observation_space.shape[0]
+  # act_dim = env.action_space.n
 
   obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
   act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
@@ -367,8 +420,8 @@ def random_rollout(env, seq_len=1600):
   return obs_data, act_data
 
 def rollout(env, rnn, ctrl, seq_len=1600, render=False):
-  obs_dim = env.observation_space.shape[0]
-  act_dim = env.action_space.shape[0]
+  # obs_dim = env.observation_space.shape[0]
+  # act_dim = env.action_space.shape[0]
 
   obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
   act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
@@ -466,8 +519,8 @@ if __name__ == '__main__':
   env.seed(RANDOMSEED)
 
   obs_dim = env.observation_space.shape[0] #this is for the lunar lander environment
-  #act_dim = env.action_space.shape[0] # continous control
-  act_dim = env.action_space.n         # discrete control
+  act_dim = env.action_space.shape[0] # continous control
+  #act_dim = env.action_space.n         # discrete control
   
   print("Initializing agent (device=" +  str(device)  + ")...")
   rnn = WorldModel(obs_dim, act_dim) # WE get our RNN with LSTM --> initialize
@@ -477,8 +530,14 @@ if __name__ == '__main__':
   
   # Adjust population size based on the number of available CPUs.
   num_workers = 4
-  agents_per_worker = 8 # TODO changed by ali. 
+  agents_per_worker = 4 # TODO changed by ali. 
   popsize = num_workers * agents_per_worker 
+
+
+  niter = 1
+  sigma0 = 0.1 
+  num_gen = 100
+  num_rollouts = 100
   
   print(f"Initializing population with {num_workers} workers each with {agents_per_worker}, for a total of {popsize}")
   pop = Population(num_workers, agents_per_worker)
@@ -496,30 +555,32 @@ if __name__ == '__main__':
   
   ############ TRAINING RNN HERE ##########################
   print('############ We are training now ################')
-  train_rnn(rnn, optimizer, pop, random_policy=True,  num_rollouts=1000, logger=loss_logger)
+  train_rnn(rnn, optimizer, pop, random_policy=True,  num_rollouts=num_rollouts, logger=loss_logger)
   loss_logger.plot('M model training loss', 'step', 'loss')
-  '''
+  
   # Upload the trained RNN.
   success = pop.upload_rnn(rnn.cpu())
   assert success
 
+
   # Iteratively update controller and RNN.
-  for i in range(args.niter):
+  for i in range(niter):
     # Evolve controllers with the trained RNN.
     print("Iter." + str(i) + ": Evolving C model...")
-    es = EvolutionStrategy(global_mu, args.sigma0, popsize)
-    evolve_ctrl(ctrl, es, pop, num_gen=args.num_gen, logger=best_logger)
+    es = EvolutionStrategy(global_mu, sigma0, popsize)
+    evolve_ctrl(ctrl, es, pop, num_gen=num_gen, logger=best_logger)
     best_logger.plot('C model evolution', 'gen', 'fitness')
 
     # Update the global best individual and upload them.
     global_mu = np.copy(ctrl.genotype)
+    print(f'global_mu is \n\n{global_mu}\n\n')
     success = pop.upload_ctrl(global_mu, noisy=True)
     assert success
     
     # Train the RNN with the current best controller.
     print("Iter." + str(i) + ": Training M model...")
     train_rnn(rnn, optimizer, pop, random_policy=False,
-      num_rollouts=args.num_rollouts, logger=loss_logger)
+      num_rollouts=num_rollouts, logger=loss_logger)
     loss_logger.plot('M model training loss', 'step', 'loss')
 
     # Upload the trained RNN.
@@ -532,6 +593,7 @@ if __name__ == '__main__':
   success = pop.close()
   assert success
 
+'''
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()

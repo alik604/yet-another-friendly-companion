@@ -1,22 +1,22 @@
 import torch
+import torch as pt
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions.normal import Normal
 from torch.autograd import Variable
+
 import argparse
 from tqdm import tqdm
 from time import sleep
 import sys
 from os.path import join, exists
 from os import mkdir, unlink, listdir, getpid
-from torch import nn, optim, distributions
+# from torch import nn, optim, distributions
 import cma
 import numpy as np
 import gym
 import random
-import math
-import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple
 from itertools import count
@@ -32,25 +32,26 @@ transform = transforms.Compose([
     transforms.Resize((64, 64)), #TODO: NEED TO KNOW WHAT THIS IS
     transforms.ToTensor()
 ])
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+use_cuda = False # torch.cuda.is_available()
 
 torch.manual_seed(1)
 
-use_cuda = torch.cuda.is_available()
 
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
-Tensor = FloatTensor
+# Tensor = FloatTensor
 
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--logdir', type=str, help='Where everything is stored.')
-parser.add_argument('--display', action='store_true', help="Use progress bars if "
-                    "specified.")
+parser.add_argument('--logdir', default='model_weights/world_model', type=str, help='Where everything is stored.')
+parser.add_argument('--display', default=True, action='store_true', help="Use progress bars if specified.")
 args = parser.parse_args()
 time_limit = 1000
+print(f'args.display {args.display}')
+
 
 ###############################  hyper parameters  #########################
 #ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
@@ -78,8 +79,8 @@ def gmm_loss(batch, mus, sigmas, logpi, reduce:bool = True):
 
     log_prob = max_log_probs.squeeze() + torch.log(probs)
     if reduce:
-        return - torch.mean(log_prob)
-    return - log_prob
+        return -torch.mean(log_prob)
+    return -log_prob
 
 class RNN(nn.Module):
     def __init__(self, obs_dim, act_dim, gaussian, hid_dim=64, drop_prob = 0.5):
@@ -90,7 +91,7 @@ class RNN(nn.Module):
         self.gaussian_mix = gaussian
         self.reward = reward
         self.learning_r = LR 
-        gmm_out = (2*obs_dim+1) *gaussian + 2
+        gmm_out = (2*obs_dim+1) * gaussian + 2
 
         self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim)
         self.fc = nn.Linear(obs_dim+hid_dim, act_dim)
@@ -110,7 +111,8 @@ class RNN(nn.Module):
       
     def step(self, obs, h):
       state = torch.cat([obs, h], dim=-1)
-      return self.fc(state)
+      action = self.fc(state)
+      return action
 
     
 
@@ -171,6 +173,7 @@ class RolloutGenerator(object):
         obs_dim = 8
         act_dim = 4
         self.model = rnn
+        # TODO uncommet
         #self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
         self.controller = Controller(obs_dim , act_dim).to(device)
 
@@ -259,7 +262,7 @@ class RolloutGenerator(object):
             i += 1
             #break
 
-tmp_dir = join(args.logdir, 'tmp')
+tmp_dir = join(args.logdir, 'weights')
 if not exists(tmp_dir):
     mkdir(tmp_dir)
 else:
@@ -329,6 +332,7 @@ def unflatten_parameters(params, example, device):
         unflattened += [params[idx:idx + e_p.numel()].view(e_p.size())]
         idx += e_p.numel()
     return unflattened
+
 def flatten_parameters(params):
     """ Flattening parameters.
     :args params: generator of parameters (as returned by module.parameters())
@@ -381,12 +385,18 @@ if __name__ == '__main__':
   optimizer = optim.RMSprop(model.parameters())
   criterion = torch.nn.MSELoss()
 
-  batch_size = 1
+  batch_size = 100
   ls = []
   losses = []
   num_episodes = 10
 
   print("#################### LETS DO THE RNN #########################")
+  try:
+    filename= args.logdir + 'my_rnn.pt'
+    #model.load_state_dict(pt.load(filename)) # TODO added by ali
+    #print(f'LSTM weights loaded')
+  except Exception as e:
+    print(f'Error is loading weights, file might not be found or model may have changed\n{e}')
 
   for i_episode in range(num_episodes):
       # Initialize the environment and state
@@ -422,7 +432,6 @@ if __name__ == '__main__':
           state = torch.from_numpy(np.array([state[0]]))
           #print("#################### UPDATED STATE #########################")
       losses.append(val)
-  filename='my_rnn.pt'
   torch.save(model.state_dict(), filename)
 
 
@@ -441,7 +450,7 @@ if __name__ == '__main__':
   r_queue = Queue()
   e_queue = Queue()
 
-  print("#################### QUEUES ARE INITIALIZED #########################")
+  print("#################### QUEUES ARE INITIALIZED #######################")
 
 
   for p_index in range(num_workers):
@@ -474,22 +483,20 @@ if __name__ == '__main__':
 
       return best_guess, np.mean(restimates), np.std(restimates)
 
-  #logdir = "exp_dir"
 
   ctrl_dir = join(args.logdir, 'ctrl')
   if not exists(ctrl_dir):
       mkdir(ctrl_dir)
 
   print("#################### LET US SETUP #########################")
-
   controller = Controller(obs_dim , act_dim)
 
   print("#################### CONTROLLER SETUP #########################")
   parameters = controller.parameters()
   es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1,
                                 {'popsize': pop_size})
+  
   target_return = 100
-
   epoch = 0
   log_step = 3
 
@@ -501,7 +508,7 @@ if __name__ == '__main__':
           print("Already better than target, breaking...")
           break
 
-      r_list = [0] * pop_size  # result list
+      r_list = [0] * pop_size  # result list. like np.zeros(pop_size).tolist()
       solutions = es.ask()
 
       # push parameters to queue
@@ -514,10 +521,10 @@ if __name__ == '__main__':
       # retrieve results
       if args.display:
           pbar = tqdm(total=pop_size * n_samples)
-      #print("pbar was done!!!")
+      print("pbar was done!!!")
     
       for _ in range(pop_size * n_samples):
-        #print(" we are in this for loop?")
+        print("We are in this for loop?")
         while r_queue.empty():
             sleep(.1)
         r_s_id, r = r_queue.get()
@@ -526,7 +533,6 @@ if __name__ == '__main__':
       
         if args.display:
             pbar.update(1)
-
 
       if args.display:
           pbar.close()
@@ -562,8 +568,8 @@ if __name__ == '__main__':
 ##################### ALI'S NOTES ON THE LSTM ###################################
 
 # Select and perform an action
-#need to get state data and make a sequence of the state data 
-#zero pre-padding 
+# need to get state data and make a sequence of the state data 
+# zero pre-padding 
 '''
 np.array([
 np.array(state_at_a_time_step])
@@ -582,7 +588,7 @@ np.array(state_at_a_time_step])
 #else: 
 #    state 
 #    action = [0]
-#ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+#ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
 #env = new env 
 
 # while True:
