@@ -67,7 +67,6 @@ if __name__ == '__main__':
             
             env.set_marker_pose(goal)
             state, reward, done, _ = env.step(action)
-            # print(state)
 
             time.sleep(0.1)
 
