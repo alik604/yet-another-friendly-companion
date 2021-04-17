@@ -22,21 +22,27 @@
 
   <include file="$(find follow_ahead_rl)/launch/spawn_robots.launch"/>
 
-  <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
+  <include file="$(find follow_ahead_rl)/launch/multi_navigation.launch"/>
+
+  <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/>
+
+
+  <!-- <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
     <arg name="identifier" value="0"/>
   </include>
 
   <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
     <arg name="identifier" value="1"/>
-  </include>
+  </include> -->
 
-  <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
+  <!-- <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
     <arg name="identifier" value="2"/>
   </include>
 
   <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
     <arg name="identifier" value="3"/>
-  </include>
+  </include> -->
 
+  
   </launch>
 

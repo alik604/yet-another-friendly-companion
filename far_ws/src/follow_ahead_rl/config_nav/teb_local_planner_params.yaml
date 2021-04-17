@@ -16,8 +16,8 @@ TebLocalPlannerROS:
 
   # Robot
 
-  max_vel_x: 1. # 0.7 #
-  max_vel_x_backwards: 1 # 0.3
+  max_vel_x: 3.5 # 0.7 #
+  max_vel_x_backwards: 2. # 0.3
   max_vel_theta: 2.1 # 2.5
   acc_lim_x: 2 # 0.4
   acc_lim_theta: 2 # 0.9
@@ -45,7 +45,7 @@ TebLocalPlannerROS:
 
   # Obstacles
 
-  min_obstacle_dist: 0.025
+  min_obstacle_dist: 0.2
   inflation_dist: 0.35
   dynamic_obstacle_inflation_dist: 0.55
   include_costmap_obstacles: False

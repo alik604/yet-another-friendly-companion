@@ -2,7 +2,7 @@
 
 > Comparing Model-Based Methods to Predict Human Trajectory in Follow-Ahead Problem
 
-By Emma Hughson, Kai Ho Anthony Cheung, Khizr Ali Pardhan, and Scott Harrison. An expansion upon [*LBGP: Learning Based Goal Planning for Autonomous Following in Front*](https://arxiv.org/pdf/2011.03125v1.pdf). 
+By Emma Hughson, Kai Ho Anthony Cheung, and Khizr Ali Pardhan. An expansion upon [*LBGP: Learning Based Goal Planning for Autonomous Following in Front*](https://arxiv.org/pdf/2011.03125v1.pdf). 
 
 ## Introduction
 
