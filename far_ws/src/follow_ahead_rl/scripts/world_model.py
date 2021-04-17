@@ -113,7 +113,7 @@ def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filen
   for i in batch_pbar:
     # sample rollout data
     print("here about to rollout")
-    (obs_batch, act_batch), success = pop.rollout(random_policy)
+    (obs_batch, act_batch)= pop.rollout(random_policy)
     print("we did the rollout")
 
     obs_batch = obs_batch.to(device)
@@ -126,6 +126,7 @@ def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filen
     # compute NLL loss
     loss = 0.0
     for obs, act, next_obs in zip(obs_batch, act_batch, next_obs_batch):
+      #exit(-1)
       mu, sigma, hid = rnn(obs, act, hid)
       dist = distributions.Normal(loc=mu, scale=sigma)
       nll = -dist.log_prob(next_obs) # negative log-likelihood
@@ -231,6 +232,7 @@ class Population:
       for p in self.pipes:
         inds = [np.copy(ctrl) for _ in range(self.agents_per_worker)]
         p.send(('upload_ctrl', (inds, noisy)))
+        
     elif isinstance(ctrl, list):
       start = 0
       for p in self.pipes:
@@ -251,7 +253,7 @@ class Population:
     rollouts = []
     all_success = True
     for rollout, success in [p.recv() for p in self.pipes]:
-      print("here")
+      #print("here")
       rollouts.extend(rollout)
       all_success = all_success and success 
 
@@ -506,7 +508,8 @@ if __name__ == '__main__':
   print('############we are going to train now ################')
   train_rnn(rnn, optimizer, pop, random_policy=True,  num_rollouts=1000, logger=loss_logger)
   loss_logger.plot('M model training loss', 'step', 'loss')
-  '''
+
+  
   # Upload the trained RNN.
   success = pop.upload_rnn(rnn.cpu())
   assert success
@@ -554,4 +557,3 @@ if __name__ == '__main__':
 
   main(args)
 
-  '''

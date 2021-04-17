@@ -520,6 +520,7 @@ if __name__ == '__main__':
         #print(" we are in this for loop?")
         while r_queue.empty():
             sleep(.1)
+        print("################# THE R-QUEUE IS NOT EMPTY #################")
         r_s_id, r = r_queue.get()
         r_list[r_s_id] += r / n_samples
 
