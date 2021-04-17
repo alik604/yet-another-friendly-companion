@@ -102,7 +102,7 @@ class Controller(nn.Linear, nn.Module):
       p.data.copy_(new_p.view(p.shape).to(p.device))
       start = end
 
-def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filename='ha_rnn.pt', logger=None):
+def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filename='world_model.py.ha_rnn.pt', logger=None):
   filename = 'model_weights/' + filename
   try:
     rnn.load_state_dict(pt.load(filename)) # TODO added by ali
