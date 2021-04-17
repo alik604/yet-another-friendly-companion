@@ -48,7 +48,6 @@ class WorldModel(nn.Module):
     self.logsigma = nn.Linear(hid_dim, obs_dim)
 
   def forward(self, obs, act, hid):
-    
     x = pt.cat([obs, act], dim=-1)
     h, c = self.rnn(x, hid)
     mu = self.mu(h)
@@ -74,6 +73,7 @@ class Phenotype(nn.Module):
       p.data.copy_(new_p.view(p.shape).to(p.device))
       start = end
 '''
+
 class Controller(nn.Linear, nn.Module):
   #def __init__(self):
   #    self.time_factor = TIME_FACTOR
@@ -84,13 +84,13 @@ class Controller(nn.Linear, nn.Module):
 
 
   def forward(self, obs, h):
-    print("we are in controller class?")
+    print("we are in controller class")
     state = pt.cat([obs, h], dim=-1)
     return pt.tanh(super().forward(state))
 
   def genotype(self):
       print(self.parameters())
-      print("we are in genotype function?")
+      print("we are in genotype function")
       params = [p.detach().view(-1) for p in self.parameters()]
       return pt.cat(params, dim=0).cpu().numpy()
 
@@ -102,19 +102,25 @@ class Controller(nn.Linear, nn.Module):
       p.data.copy_(new_p.view(p.shape).to(p.device))
       start = end
 
-
 def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filename='ha_rnn.pt', logger=None):
+  filename = 'model_weights/' + filename
+  try:
+    rnn.load_state_dict(pt.load(filename)) # TODO added by ali
+    print(f'LSTM weights loaded')
+  except Exception as e:
+    print(f'Error is loading wegihts, file might not be found or model may have changed\n{e}')
+
   rnn = rnn.train().to(device)
 
-  batch_size = pop.popsize
+  batch_size = pop.popsize # popsize is num_workers * agents_per_worker
   num_batch = num_rollouts // batch_size
 
   batch_pbar = tqdm(range(num_batch))
   for i in batch_pbar:
     # sample rollout data
-    print("here about to rollout")
-    (obs_batch, act_batch), success = pop.rollout(random_policy)
-    print("we did the rollout")
+    print("Starting rollout")
+    (obs_batch, act_batch) = pop.rollout(random_policy) # , success 
+    print("completed rollout")
 
     obs_batch = obs_batch.to(device)
     act_batch = act_batch.to(device)
@@ -137,6 +143,7 @@ def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filen
     batch_pbar.set_description('loss= ' + str(val))
 
     # update RNN
+    # optimizer.zero_grad() # TODO why was this missing? 
     loss.backward()
     optimizer.step()
 
@@ -144,8 +151,7 @@ def train_rnn(rnn, optimizer, pop, random_policy=False, num_rollouts=1000, filen
       logger.push(loss.item())
 
   pt.save(rnn.state_dict(), filename)
-
-  
+ 
 class Population:
   def __init__(self, num_workers, agents_per_worker):
     self.num_workers = num_workers
@@ -285,6 +291,7 @@ class Population:
     return all(success)
 
     #
+
 ######### note sure about these classes/functions #####################
 class EvolutionStrategy:
   # Wrapper for CMAEvolutionStrategy
@@ -313,20 +320,6 @@ class EvolutionStrategy:
       l2_decay = self._compute_weight_decay(self.solutions)
       reward_table += l2_decay
     self.es.tell(self.solutions, reward_table.tolist())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='ha_ctrl.pt', logger=None):
   best_sol = None
@@ -430,8 +423,6 @@ def evaluate(env, rnn, ctrl, num_episodes=5, max_episode_steps=1600):
 
   return fitness / num_episodes
 
-
-
 class ValueLogger:
   def __init__(self, name, bufsize=100):
     self.name = name
@@ -466,33 +457,34 @@ class ValueLogger:
     plt.close(fig=fig)
     
 if __name__ == '__main__':
-  print("hello world???")
-  np.random.seed(0)
-  pt.manual_seed(0)
-
-  env =gym.make(ENV_NAME)
+  print("[start main]")
+  env = gym.make(ENV_NAME)
   print(env)
-  env.seed(0)
+
+  np.random.seed(RANDOMSEED)
+  pt.manual_seed(RANDOMSEED)
+  env.seed(RANDOMSEED)
+
   obs_dim = env.observation_space.shape[0] #this is for the lunar lander environment
-  #act_dim = env.action_space.shape[0]
-  act_dim = env.action_space.n
+  #act_dim = env.action_space.shape[0] # continous control
+  act_dim = env.action_space.n         # discrete control
   
   print("Initializing agent (device=" +  str(device)  + ")...")
   rnn = WorldModel(obs_dim, act_dim) # WE get our RNN with LSTM --> initialize
   ctrl = Controller(obs_dim+rnn.hid_dim, act_dim) # we get our controller 
-  print("what is in the controller?", ctrl)
+  print("What is in the controller?", ctrl)
 
   
   # Adjust population size based on the number of available CPUs.
-  num_workers = 1
-  agents_per_worker = 1
-  popsize = 1
+  num_workers = 4
+  agents_per_worker = 8 # TODO changed by ali. 
+  popsize = num_workers * agents_per_worker 
   
-  print("Initializing population with " + str(popsize) + " workers...")
+  print(f"Initializing population with {num_workers} workers each with {agents_per_worker}, for a total of {popsize}")
   pop = Population(num_workers, agents_per_worker)
-  print("what does population look like?", pop)
+  # print("what does population look like?", pop)
   global_mu = np.zeros_like(ctrl.genotype())
-  print(global_mu)
+  # print(f'global_mu {global_mu}') # 1D list
 
   
   loss_logger = ValueLogger('ha_rnn_loss', bufsize=20)
@@ -503,7 +495,7 @@ if __name__ == '__main__':
 
   
   ############ TRAINING RNN HERE ##########################
-  print('############we are going to train now ################')
+  print('############ We are training now ################')
   train_rnn(rnn, optimizer, pop, random_policy=True,  num_rollouts=1000, logger=loss_logger)
   loss_logger.plot('M model training loss', 'step', 'loss')
   '''
