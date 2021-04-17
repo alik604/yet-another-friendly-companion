@@ -4,9 +4,14 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions.normal import Normal
 from torch.autograd import Variable
-
+import argparse
+from tqdm import tqdm
+from time import sleep
+import sys
+from os.path import join, exists
+from os import mkdir, unlink, listdir, getpid
 from torch import nn, optim, distributions
-
+import cma
 import numpy as np
 import gym
 import random
@@ -16,9 +21,17 @@ import matplotlib.pyplot as plt
 from collections import namedtuple
 from itertools import count
 from copy import deepcopy
+from torch.multiprocessing import Process, Queue
 
-import torchvision.transforms as T
+from torchvision import transforms
+#import torchvision.transforms as T
 #from typing import Tuple
+
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((64, 64)), #TODO: NEED TO KNOW WHAT THIS IS
+    transforms.ToTensor()
+])
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 torch.manual_seed(1)
@@ -29,6 +42,15 @@ FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 Tensor = FloatTensor
+
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument('--logdir', type=str, help='Where everything is stored.')
+parser.add_argument('--display', action='store_true', help="Use progress bars if "
+                    "specified.")
+args = parser.parse_args()
+time_limit = 1000
 
 ###############################  hyper parameters  #########################
 #ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
@@ -70,91 +92,41 @@ class RNN(nn.Module):
         self.learning_r = LR 
         gmm_out = (2*obs_dim+1) *gaussian + 2
 
-        self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim) 
-        #self.dropout = nn.Dropout(drop_prob)
-        #self.fc = nn.Linear(hid_dim, gmm_out)
-        #self.sigmoid = nn.Sigmoid()
+        self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim)
+        self.fc = nn.Linear(obs_dim+hid_dim, act_dim)
         self.mu = nn.Linear(hid_dim, obs_dim)
         self.logsigma = nn.Linear(hid_dim, obs_dim)
     
-    def forward(self, obs, act, hid=64):
-
-        print("the observations are:", obs)
-        print("the actions are", act)
-        '''
-        print(hid)
-        x = torch.cat([act, obs], dim=-1)
-        print("the concatenated result:", x)
-        #exit(-1)
-        lstm_out, hidden = self.rnn(x, hid)
-        gmm_outs = self.fc(lstm_out)
-
-        stride = self.gaussian_mix * self.observation_dim
-
-        mus = gmm_outs[:, :, :stride]
-        mus = mus.view(seq_len, batch_size, self.gaussian_mix, self.observation_dim)
-        
-        sigma = gmm_outs[:, :, stride:2 * stride]
-        #sigma = sigmas.view(seq_len, batch_size, self.gaussian_mix, self.observation_dim)
-        sigma = torch.exp(sigma)
-
-        pi = gmm_outs[:, :, 2 *stride: 2 *stride +self.gaussian_mix]
-        #pi = pi.view(seq_len, batch_size, self.gaussian_mix)
-        logpi = F.log_softmax(pi, dim=-1)
-
-        return mus, sigma, logpi
-        '''
-        #print("the action is:, ", torch.from_numpy(np.array([act, 0])))
-        #act = torch.tensor([act])
-        #print("the state is :, ", obs)
+    def forward(self, obs, act, hid):
         x = torch.cat([act, obs], dim=-1)
         h, c = self.rnn(x, hid)
         mu = self.mu(h)
+        #print("what is mu", mu)
         sigma = torch.exp(self.logsigma(h))
+        #print("what is sigma", sigma)
+        #print("this is the next state",c)
+        #print("this is the next hidden",h)
         return mu, sigma, (h, c)
+      
+    def step(self, obs, h):
+      state = torch.cat([obs, h], dim=-1)
+      return self.fc(state)
+
     
-        #lstm_out = lstm_out.contiguous().view(-1, self.hidden) #TODO check if this is needed
 
-        #out = self.dropout(lstm_out)
-        #
-        # out = self.fc(out)
-        #out = self.sigmoid(out)
+class Controller(nn.Module):
+    """ Controller """
+    def __init__(self, latents, actions, recurrents = 64):
+      super().__init__()
+      self.fc = nn.Linear(latents + recurrents, actions)
 
-        #out = out.view(batch_size, -1)
-        #out = out[:, -1]
-        #mu = self.mu(h)
-        #sigma = torch.exp(self.logsigma(h))
-        #return mu, sigma, (h, c)
-        #return out, hid
-'''
-class Controller(nn.Linear, nn.Module):
-  #def __init__(self):
-  #    self.time_factor = TIME_FACTOR
-  #    self.noise_bias = NOISE_BIAS
-  #    self.output_noise=OUTPUT_NOISE
-  #    self.activations = activations
-  #    self.output_size = OUTPUT_SIZE
+    def forward(self, obs, h):
+      #print("we are in controller class?")
+      state = torch.cat([obs, h], dim=-1)
+      return self.fc(state)
 
 
-  def forward(self, obs, h):
-    print("we are in controller class?")
-    state = pt.cat([obs, h], dim=-1)
-    return pt.tanh(super().forward(state))
 
-  def genotype(self):
-      print(self.parameters())
-      print("we are in genotype function?")
-      params = [p.detach().view(-1) for p in self.parameters()]
-      return pt.cat(params, dim=0).cpu().numpy()
-
-  def load_genotype(self, params):
-    start = 0
-    for p in self.parameters():
-      end = start + p.numel()
-      new_p = pt.from_numpy(params[start:end])
-      p.data.copy_(new_p.view(p.shape).to(p.device))
-      start = end
-'''
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -178,6 +150,205 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
+#print("#################### RNN WEIGHTS SAVED #########################")
+class RolloutGenerator(object):
+    """ Utility to generate rollouts.
+    Encapsulate everything that is needed to generate rollouts in the TRUE ENV
+    using a controller with previously trained VAE and MDRNN.
+    :attr vae: VAE model loaded from mdir/vae
+    :attr mdrnn: MDRNN model loaded from mdir/mdrnn
+    :attr controller: Controller, either loaded from mdir/ctrl or randomly
+        initialized
+    :attr env: instance of the CarRacing-v0 gym environment
+    :attr device: device used to run VAE, MDRNN and Controller
+    :attr time_limit: rollouts have a maximum of time_limit timesteps
+    """
+    def __init__(self, mdir, rnn, device, time_limit):
+        """ Build vae, rnn, controller and environment. """
+        # Loading world model and vae
+        #references: https://github.com/ctallec/world-models/blob/master/utils/misc.py
+        ctrl_file = join(mdir, 'ctrl', 'best.tar')
+        obs_dim = 8
+        act_dim = 4
+        self.model = rnn
+        #self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
+        self.controller = Controller(obs_dim , act_dim).to(device)
+
+        # load controller if it was previously saved
+        if exists(ctrl_file):
+            ctrl_state = torch.load(ctrl_file, map_location={'cuda:0': str(device)})
+            print("Loading Controller with reward {}".format(
+                ctrl_state['reward']))
+            self.controller.load_state_dict(ctrl_state['state_dict'])
+
+        self.env = gym.make(ENV_NAME)
+        self.device = device
+
+        self.time_limit = time_limit
+    
+    def get_action_and_transition(self, hidden, seq_len=1600, render=False):
+        """ Get action and transition.
+        Encode obs to latent using the VAE, then obtain estimation for next
+        latent and next hidden state using the MDRNN and compute the controller
+        corresponding action.
+        :args obs: current observation (1 x 3 x 64 x 64) torch tensor
+        :args hidden: current hidden state (1 x 256) torch tensor
+        :returns: (action, next_hidden)
+            - action: 1D np array
+            - next_hidden (1 x 256) torch tensor
+        """
+        obs_dim = self.env.observation_space.shape[0] #this is for the lunar lander environment
+        #act_dim = env.action_space.shape[0]
+        act_dim = self.env.action_space.n
+        #print(obs_dim)
+        #print(seq_len)
+        #obs_dim_ze = np.zeros((seq_len, obs_dim))
+        obs_data = np.zeros((seq_len+1, obs_dim))
+        act_data = np.zeros((seq_len, act_dim))
+
+        obs = self.env.reset()
+        hid = (torch.zeros(1, 64), # h
+                torch.zeros(1, 64)) # c
+
+        obs = torch.from_numpy(obs).unsqueeze(0)
+        act = self.controller.forward(obs, hid[0])
+        #act = torch.tensor([[0,0 ,0 ,0]])
+        _, _, hid = self.model.forward(obs, act, hid)
+        m = nn.Softmax(dim=1)
+        act = m(act) 
+        act = torch.argmax(act)
+        act = act.cpu().numpy()
+        #_, latent_mu, _ = self.vae(obs)
+        #action = self.controller(latent_mu, hidden[0])
+        #_, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
+        return act, obs
+  
+    def rollout(self, params, render=False):
+        """ Execute a rollout and returns minus cumulative reward.
+        Load :params: into the controller and execute a single rollout. This
+        is the main API of this class.
+        :args params: parameters as a single 1D np array
+        :returns: minus cumulative reward
+        """
+        # copy params into the controller
+        if params is not None:
+            load_parameters(params, self.controller)
+
+        obs = self.env.reset()
+
+        # This first render is required !
+        self.env.render()
+
+        hidden = [
+            torch.zeros(1, 64).to(self.device)
+            for _ in range(2)]
+
+        cumulative = 0
+        i = 0
+        while True:
+            action, hidden = self.get_action_and_transition(hidden)
+            obs, reward, done, _ = self.env.step(action)
+
+            if render:
+                self.env.render()
+
+            cumulative += reward
+            #print(cumulative)
+            if done or i > self.time_limit:
+                return - cumulative
+            i += 1
+            #break
+
+tmp_dir = join(args.logdir, 'tmp')
+if not exists(tmp_dir):
+    mkdir(tmp_dir)
+else:
+    for fname in listdir(tmp_dir):
+        unlink(join(tmp_dir, fname))
+
+################################################################################
+#                           Thread routines                                    #
+################################################################################
+def slave_routine(p_queue, r_queue, e_queue, p_index, model):
+    """ Thread routine.
+    Threads interact with p_queue, the parameters queue, r_queue, the result
+    queue and e_queue the end queue. They pull parameters from p_queue, execute
+    the corresponding rollout, then place the result in r_queue.
+    Each parameter has its own unique id. Parameters are pulled as tuples
+    (s_id, params) and results are pushed as (s_id, result).  The same
+    parameter can appear multiple times in p_queue, displaying the same id
+    each time.
+    As soon as e_queue is non empty, the thread terminate.
+    When multiple gpus are involved, the assigned gpu is determined by the
+    process index p_index (gpu = p_index % n_gpus).
+    :args p_queue: queue containing couples (s_id, parameters) to evaluate
+    :args r_queue: where to place results (s_id, results)
+    :args e_queue: as soon as not empty, terminate
+    :args p_index: the process index
+    """
+    # init routine
+    #gpu = p_index % torch.cuda.device_count()
+    #device = torch.device('cuda:{}'.format(gpu) if torch.cuda.is_available() else 'cpu')
+    device = 'cpu'
+    #print("we are in slave_routine")
+    # redirect streams
+    #sys.stdout = open(join(tmp_dir, str(getpid()) + '.out'), 'a')
+    #sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
+    #print(p_queue)
+    with torch.no_grad():
+        r_gen = RolloutGenerator(args.logdir, model, device, time_limit)
+
+        while e_queue.empty():
+            if p_queue.empty():
+              #print("we are in if statement")
+              sleep(.1)
+            else:
+              #print("we are in else statement")
+              s_id, params = p_queue.get()
+              #print("we are putting stuff in r_queue")
+              r_queue.put((s_id, r_gen.rollout(params)))
+
+
+
+################################################################################
+#                           Controller                                         #
+################################################################################
+
+def unflatten_parameters(params, example, device):
+    """ Unflatten parameters.
+    :args params: parameters as a single 1D np array
+    :args example: generator of parameters (as returned by module.parameters()),
+        used to reshape params
+    :args device: where to store unflattened parameters
+    :returns: unflattened parameters
+    """
+    params = torch.Tensor(params).to(device)
+    idx = 0
+    unflattened = []
+    for e_p in example:
+        unflattened += [params[idx:idx + e_p.numel()].view(e_p.size())]
+        idx += e_p.numel()
+    return unflattened
+def flatten_parameters(params):
+    """ Flattening parameters.
+    :args params: generator of parameters (as returned by module.parameters())
+    :returns: flattened parameters (i.e. one tensor of dimension 1 with all
+        parameters concatenated)
+    """
+    return torch.cat([p.detach().view(-1) for p in params], dim=0).cpu().numpy()
+
+def load_parameters(params, controller):
+    """ Load flattened parameters into controller.
+    :args params: parameters as a single 1D np array
+    :args controller: module in which params is loaded
+    """
+    proto = next(controller.parameters())
+    params = unflatten_parameters(
+        params, controller.parameters(), proto.device)
+
+    for p, p_0 in zip(controller.parameters(), params):
+        p.data.copy_(p_0)
+
 
 BATCH_SIZE = 128
 GAMMA = 0.999
@@ -185,327 +356,243 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
 
-np.random.seed(0)
-torch.manual_seed(0)
 
-env =gym.make(ENV_NAME)
-#env = gym.make('CartPole-v0').unwrapped
+if __name__ == '__main__':
+  
+  np.random.seed(0)
+  torch.manual_seed(0)    
+  env =gym.make(ENV_NAME)
+  #env = gym.make('CartPole-v0').unwrapped
 
-#print(env)
-env.seed(0)
-obs_dim = env.observation_space.shape[0] #this is for the lunar lander environment
-#act_dim = env.action_space.shape[0]
-act_dim = env.action_space.n
-
-print("obs_dim + act_dim", obs_dim+act_dim)
-#print("Initializing agent (device=" +  str(device)  + ")...")
-model = RNN(obs_dim, act_dim, 5)
-
-model.zero_grad()
-model.to(device)
-
-params = [p for p in model.parameters() if p.requires_grad]
-
-optimizer = optim.RMSprop(model.parameters())
-criterion = torch.nn.MSELoss()
-#memory = ReplayMemory(10000)
-
-
-
-
-#optimizer = optim.RMSprop(model.parameters())
-#memory = ReplayMemory(10000)
-
-
-batch_size = 1
-ls = []
-losses = []
-num_episodes = 10
-for i_episode in range(num_episodes):
-    # Initialize the environment and state
-    state = env.reset()
-    hid = (torch.zeros(batch_size, model.hidden).to(device),torch.zeros(batch_size, model.hidden).to(device))
-    #state = torch.from_numpy(np.array([state]))
-    ls.append(state)
-    loss = 0.0
-    obs_batch, next_obs_batch = ls[:-1],ls[1:]
-    for i in range(0, 10):
-        # Select and perform an action
-        #need to get state data and make a sequence of the state data 
-        #zero pre-padding 
-        '''
-        np.array([
-            np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step])
-            ,np.array(state_at_a_time_step]) #current one should be very last timestep 
-            ])
-        '''
-        #seq_len = look back window
-        #       #if len(state_array)== 10:
-        #    then pred = model.forward(state_array, action, hid )
-        #else: 
-        #    state 
-        #    action = [0]
-        #ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-        #env = new env 
-
-       # while True:
-       #     state = env.step()
-       #     ls.append(state)
-
-       # input = ls[:-10] # 9 zeros, and new state #look at engineer man on youtube!!!! sentence generation and lyric generation
-
-       # lstm(input)
-
-
-       # if env is done:
-        #    break
-        #LSTM expects 3D input
-        state = torch.from_numpy(np.array([state]))
-        
-        ls.append(state)
-        print("nextobservation looks like:,", ls[1:])
-        next_obs = ls[1:]
-        next_obs = next_obs[0]
-
-        act_batch = len(ls)
-        #action = env.action_space.sample()
-        #action = torch.stack(action).to(device)
-        action = torch.tensor([[0,0 ,0 ,0]])
-        print(action)
-        mu, sigma, hid = model.forward(state, action, hid)
-        print("this is what mu looks like:", mu)
-        print("this is what sigma looks like:", sigma)
-        dist = distributions.Normal(loc=mu, scale=sigma)
-        nll = -dist.log_prob(next_obs) # negative log-likelihood
-        nll = torch.mean(nll, dim=-1)     # mean over dimensions
-        nll = torch.mean(nll, dim=0)      # mean over batch
-        loss += nll
-        loss = loss / len(ls)     # mean over trajectory
-        val = loss.item()
-
-        state = ls[:-1][0]
-    losses.append(val)
-filename='my_rnn.pt'
-torch.save(model.state_dict(), filename)
-print("idk")
-#next_action = select_action(state, action, hid)
-#next_state, reward, done, _ = env.step(action)
-#reward = Tensor([reward])
-
-# Store the transition in memory
-#memory.push(state, action, next_state, reward)
-
-# Move to the next state
-#state = next_state
-
-# Perform one step of the optimization (on the target network)
-#optimize_model()
-'''
-if done:
-    print('Episode %02i, Duration %i' % (i_episode, t+1))
-    episode_durations.append(t + 1)
-    plot_durations()
-    break
-'''
-
-
-######### note sure about these classes/functions #####################
-class EvolutionStrategy:
-  # Wrapper for CMAEvolutionStrategy
-  def __init__(self, mu, sigma, popsize, weight_decay=0.01):
-    self.es = CMAEvolutionStrategy(mu.tolist(), sigma, {'popsize': popsize})
-    self.weight_decay = weight_decay
-    self.solutions = None
-
-  @property
-  def best(self):
-    best_sol = self.es.result[0]
-    best_fit = -self.es.result[1]
-    return best_sol, best_fit
-
-  def _compute_weight_decay(self, model_param_list):
-    model_param_grid = np.array(model_param_list)
-    return -self.weight_decay * np.mean(model_param_grid * model_param_grid, axis=1)
-
-  def ask(self):
-    self.solutions = self.es.ask()
-    return self.solutions
-
-  def tell(self, reward_table_result):
-    reward_table = -np.array(reward_table_result)
-    if self.weight_decay > 0:
-      l2_decay = self._compute_weight_decay(self.solutions)
-      reward_table += l2_decay
-    self.es.tell(self.solutions, reward_table.tolist())
-
-
-
-from collections import namedtuple
-
-TIME_FACTOR = 0
-NOISE_BIAS = 0
-OUTPUT_NOISE = [False, False, False, False]
-OUTPUT_SIZE = 4
-
-def activations(a):
-  a = np.tanh(a)
-  a[1] = (a[1] + 1) / 2
-  a[2] = (a[2] + 1) / 2
-  return a
-
-class Controller():
-    def __init__(self):
-        self.time_factor = TIME_FACTOR
-        self.noise_bias = NOISE_BIAS
-        self.output_noise=OUTPUT_NOISE
-        self.activations=activations
-        self.output_size = OUTPUT_SIZE
-    
-    def forward(self, obs, h):
-        #print("we are in controller class?")
-        state = pt.cat([obs, h], dim=-1)
-        return pt.tanh(super().forward(state))
-
-
-
-
-
-
-def evolve_ctrl(ctrl, es, pop, num_gen=100, filename='my_ctrl.pt', logger=None):
-  best_sol = None
-  best_fit = -np.inf
-
-  gen_pbar = tqdm(range(num_gen))
-  for g in gen_pbar:
-    # upload individuals
-    inds = es.ask()
-    success = pop.upload_ctrl(inds)
-    assert success
-
-    # evaluate
-    fits, success = pop.evaluate()
-    assert success
-    
-    # update
-    es.tell(fits)
-    best_sol, best_fit = es.best
-    gen_pbar.set_description('best=' + str(best_fit))
-
-    if logger is not None:
-      logger.push(best_fit)
-
-  ctrl.load_genotype(best_sol)
-  pt.save(ctrl.state_dict(), filename)
-
-def random_rollout(env, seq_len=1600):
-  obs_dim = env.observation_space.shape[0]
+  #print(env)
+  env.seed(0)
+  obs_dim = env.observation_space.shape[0] #this is for the lunar lander environment
+  #act_dim = env.action_space.shape[0]
   act_dim = env.action_space.n
 
-  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
-  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
-  
-  obs = env.reset()
-  obs_data[0] = obs
-  for t in range(seq_len):
-    act = env.action_space.sample()
-    obs, rew, done, _ = env.step(act)
-    obs_data[t+1] = obs
-    act_data[t] = act
-    if done:
-      obs = env.reset()
+  print("obs_dim + act_dim", obs_dim+act_dim)
+  model = RNN(obs_dim, act_dim, 5)
 
-  return obs_data, act_data
+  model.zero_grad()
+  model.to(device)
 
-def rollout(env, rnn, ctrl, seq_len=1600, render=False):
-  obs_dim = env.observation_space.shape[0]
-  act_dim = env.action_space.shape[0]
+  params = [p for p in model.parameters() if p.requires_grad]
 
-  obs_data = np.zeros((seq_len+1, obs_dim), dtype=np.float32)
-  act_data = np.zeros((seq_len, act_dim), dtype=np.float32)
-  
-  obs = env.reset()
-  hid = (pt.zeros(1, rnn.hid_dim), # h
-         pt.zeros(1, rnn.hid_dim)) # c
+  optimizer = optim.RMSprop(model.parameters())
+  criterion = torch.nn.MSELoss()
 
-  obs_data[0] = obs
-  for t in range(seq_len):
-    if render:
-      env.render()
-    obs = pt.from_numpy(obs).unsqueeze(0)
-    with pt.no_grad():
-      act = ctrl(obs, hid[0])
-      _, _, hid = rnn(obs, act, hid)
+  batch_size = 1
+  ls = []
+  losses = []
+  num_episodes = 10
 
-    act = act.squeeze().numpy()
-    obs, rew, done, _ = env.step(act)
-    obs_data[t+1] = obs
-    act_data[t] = act
-    if done:
-      obs = env.reset()
+  print("#################### LETS DO THE RNN #########################")
 
-  return obs_data, act_data
+  for i_episode in range(num_episodes):
+      # Initialize the environment and state
+      state = env.reset()
+      state = torch.from_numpy(np.array([state]))
+      hid = (torch.zeros(batch_size, model.hidden).to(device),torch.zeros(batch_size, model.hidden).to(device))
+      ls.append(state)
+      loss = 0.0
+      obs_batch, next_obs_batch = ls[:-1],ls[1:]
+      for i in range(0, 10): #TODO make this more than 10
+         
+          ls.append(state)
+          next_obs = ls[1:]
+          next_obs = next_obs[0]
 
-def evaluate(env, rnn, ctrl, num_episodes=5, max_episode_steps=1600):
-  fitness = 0.0
- 
-  for ep in range(num_episodes):
-    # Initialize observation and hidden states.
-    obs = env.reset()
-    hid = (pt.zeros(1, rnn.hid_dim), # h
-           pt.zeros(1, rnn.hid_dim)) # c
+          act_batch = len(ls)
+          #action = torch.tensor([[0,0 ,0 ,0]]) #TODO figure out how to get action state.
+          pred = model.step(state, hid[0])
+          m = nn.Softmax(dim=1)
+          act = m(pred) 
+          act = torch.argmax(act)
+          act = act.cpu().numpy()
+          mu, sigma, hid = model.forward(state, pred, hid)
+          dist = distributions.Normal(loc=mu, scale=sigma)
+          nll = -dist.log_prob(next_obs) # negative log-likelihood
+          nll = torch.mean(nll, dim=-1)     # mean over dimensions
+          nll = torch.mean(nll, dim=0)      # mean over batch
+          loss += nll
+          loss = loss / len(ls)     # mean over trajectory
+          val = loss.item()
 
-    for t in range(max_episode_steps):
-      obs = pt.from_numpy(obs).unsqueeze(0)
-      with pt.no_grad():
-        # Take an action with the controller.
-        act = ctrl(obs, hid[0])
-
-        # Predict the next observation with the RNN.
-        _, _, hid = rnn(obs, act, hid)
-
-      # Take a step in the environment.
-      act = act.squeeze().numpy()
-      obs, rew, done, _ = env.step(act)
-
-      fitness += rew
-      if done:
-        break
-
-  return fitness / num_episodes
+          state = env.step(act)
+          state = torch.from_numpy(np.array([state[0]]))
+          #print("#################### UPDATED STATE #########################")
+      losses.append(val)
+  filename='my_rnn.pt'
+  torch.save(model.state_dict(), filename)
 
 
 
-# Iteratively update controller and RNN.
-for i in range(args.niter):
-    # Evolve controllers with the trained RNN.
-    print("Iter." + str(i) + ": Evolving C model...")
-    es = EvolutionStrategy(global_mu, args.sigma0, popsize)
-    evolve_ctrl(ctrl, es, num_gen=args.num_gen, logger=best_logger)
-    best_logger.plot('C model evolution', 'gen', 'fitness')
+  #hard coded for testing!!
+  n_samples = 2
+  pop_size = 2
+  num_workers = 4
+  time_limit = 1000
 
-    # Update the global best individual and upload them.
-    global_mu = np.copy(ctrl.genotype)
-    #success = pop.upload_ctrl(global_mu, noisy=True)
-    #assert success
 
-    # Train the RNN with the current best controller.
-    print("Iter." + str(i) + ": Training M model...")
-    #train_rnn(rnn, optimizer, random_policy=False,
-    #    num_rollouts=args.num_rollouts, logger=loss_logger)
-    #loss_logger.plot('M model training loss', 'step', 'loss')
+  cur_best = None
 
-    # Upload the trained RNN.
-    #success = pop.upload_rnn(rnn.cpu())
-    #assert success
 
-    # Test run!
-    rollout(env, rnn, ctrl, render=True)
+  p_queue = Queue()
+  r_queue = Queue()
+  e_queue = Queue()
 
-success = pop.close()
-assert success
+  print("#################### QUEUES ARE INITIALIZED #########################")
+
+
+  for p_index in range(num_workers):
+      Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, model)).start()
+
+
+  print("#################### PROCESSING COMPLETE #########################")
+
+
+  def evaluate(solutions, results, rollouts=100):
+      """ Give current controller evaluation.
+      Evaluation is minus the cumulated reward averaged over rollout runs.
+      :args solutions: CMA set of solutions
+      :args results: corresponding results
+      :args rollouts: number of rollouts
+      :returns: minus averaged cumulated reward
+      """
+      index_min = np.argmin(results)
+      best_guess = solutions[index_min]
+      restimates = []
+
+      for s_id in range(rollouts):
+          p_queue.put((s_id, best_guess))
+
+      print("Evaluating...")
+      for _ in tqdm(range(rollouts)):
+          while r_queue.empty():
+              sleep(.1)
+          restimates.append(r_queue.get()[1])
+
+      return best_guess, np.mean(restimates), np.std(restimates)
+
+  #logdir = "exp_dir"
+
+  ctrl_dir = join(args.logdir, 'ctrl')
+  if not exists(ctrl_dir):
+      mkdir(ctrl_dir)
+
+  print("#################### LET US SETUP #########################")
+
+  controller = Controller(obs_dim , act_dim)
+
+  print("#################### CONTROLLER SETUP #########################")
+  parameters = controller.parameters()
+  es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1,
+                                {'popsize': pop_size})
+  target_return = 100
+
+  epoch = 0
+  log_step = 3
+
+
+
+  print("#################### ABOUT TO RUN CONTROLLER TRAINING #########################")
+  while not es.stop():
+      if cur_best is not None and - cur_best > target_return:
+          print("Already better than target, breaking...")
+          break
+
+      r_list = [0] * pop_size  # result list
+      solutions = es.ask()
+
+      # push parameters to queue
+      for s_id, s in enumerate(solutions):
+          for _ in range(n_samples):
+              p_queue.put((s_id, s))
+
+      #print("we just put something in p_queue")
+      
+      # retrieve results
+      if args.display:
+          pbar = tqdm(total=pop_size * n_samples)
+      #print("pbar was done!!!")
+    
+      for _ in range(pop_size * n_samples):
+        #print(" we are in this for loop?")
+        while r_queue.empty():
+            sleep(.1)
+        r_s_id, r = r_queue.get()
+        r_list[r_s_id] += r / n_samples
+
+      
+        if args.display:
+            pbar.update(1)
+
+
+      if args.display:
+          pbar.close()
+
+      es.tell(solutions, r_list)
+      es.disp()
+
+      # evaluation and saving
+      if epoch % log_step == log_step - 1:
+          best_params, best, std_best = evaluate(solutions, r_list)
+          print("Current evaluation: {}".format(best))
+          if not cur_best or cur_best > best:
+              cur_best = best
+              print("Saving new best with value {}+-{}...".format(-cur_best, std_best))
+              load_parameters(best_params, controller)
+              torch.save(
+                  {'epoch': epoch,
+                  'reward': - cur_best,
+                  'state_dict': controller.state_dict()},
+                  join(ctrl_dir, 'best.tar'))
+          if - best > target_return:
+              print("Terminating controller training with value {}...".format(best))
+              break
+
+
+      epoch += 1
+
+  es.result_pretty()
+  e_queue.put('EOP')
+
+
+
+##################### ALI'S NOTES ON THE LSTM ###################################
+
+# Select and perform an action
+#need to get state data and make a sequence of the state data 
+#zero pre-padding 
+'''
+np.array([
+np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step])
+,np.array(state_at_a_time_step]) #current one should be very last timestep 
+])
+'''
+#seq_len = look back window
+#       #if len(state_array)== 10:
+#    then pred = model.forward(state_array, action, hid )
+#else: 
+#    state 
+#    action = [0]
+#ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+#env = new env 
+
+# while True:
+#     state = env.step()
+#     ls.append(state)
+
+# input = ls[:-10] # 9 zeros, and new state #look at engineer man on youtube!!!! sentence generation and lyric generation
+
+# lstm(input)
+
+
+# if env is done:
+#    break
