@@ -10,7 +10,7 @@ By Emma Hughson, Kai Ho Anthony Cheung, and Khizr Ali Pardhan. An expansion upon
 
 **Why Model-Based Methods: **The field of reinforcement learning is **primarily focused** on model-free methods. Model-based methods have been shown to be more efficient than model-free.
 
-**What our solution is:** **Extending the work** of Nikdel et al., we will be using model-based algorithms with the addition of obstacle avoidance.
+**What our solution is: Extending the work** of Nikdel et al., we will be using model-based algorithms with the addition of obstacle avoidance.
 
 ![img](https://lh6.googleusercontent.com/vcm2ETgHOHVG5tV7dPMG_KrdsmWEvy1fmwErLSB3Xl8i5PEUYqGL5HrypWWaBUQ7Hr0-hlVixG0MCVV4tjZJWhsgl1mtOYrb8qH3Eo95ZqfhsGuMQ_8KH-owDRc3l7JuLzrPFdGCpWI)
 
