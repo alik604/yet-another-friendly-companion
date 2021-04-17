@@ -1,7 +1,11 @@
 <launch>
   <arg name="floor"  default="$(find follow_ahead_rl)/models/empty_floor/model.sdf"/>
+  <arg name="marker"  default="$(find follow_ahead_rl)/urdf/obstacle_urdfs/marker.urdf"/>
 
   <node name="spawn_sdf0" pkg="gazebo_ros" type="spawn_model" args="-sdf -model floor1 -x 0 -y 0 -z 0 -Y 0 -file $(arg floor)" />
+
+  <!-- Floor for Marker -->
+  <node name="spawn_sdf1" pkg="gazebo_ros" type="spawn_model" args="-sdf -model floor2 -x 0 -y 0 -z 1.5 -Y 0 -file $(arg floor)" />
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" value="$(find follow_ahead_rl)/worlds/empty.world"/>
@@ -25,5 +29,9 @@
   </include>
 
   <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/>
+
+  <node name="spawn_marker" pkg="gazebo_ros" type="spawn_model" ns="marker"
+    args="-x 0 -y 0 -z 2.7 -R 0 -P 0 -Y 0 -urdf -file $(arg marker) -model marker"
+  />
 
 </launch>

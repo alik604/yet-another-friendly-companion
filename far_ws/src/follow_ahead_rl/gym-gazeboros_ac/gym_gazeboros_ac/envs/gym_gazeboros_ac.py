@@ -89,7 +89,7 @@ class EnvConfig:
     INIT_SIM_ON_AGENT = False
 
     # If True, moves jackal bot out of the way and puts obstacles around person
-    TRAIN_HINN = True
+    TRAIN_HINN = False
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -956,6 +956,10 @@ class GazeborosEnv(gym.Env):
 
         return init_pos_robot, init_pos_person
 
+    def set_marker_pose(self, xy):
+        pose = {"pos": (xy[0], xy[1]), "orientation": 0}
+        self.set_pos("marker",pose)        
+
     def set_pos(self, name, pose):
         set_model_msg = ModelState()
         set_model_msg.model_name = name
@@ -970,6 +974,8 @@ class GazeborosEnv(gym.Env):
 
         if self.use_jackal and "tb3" in name:
             set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.1635
+        elif "marker" in name:
+            set_model_msg.pose.position.z = 1.6
         else:
             set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.099
         set_model_msg.pose.position.x = pose["pos"][0]

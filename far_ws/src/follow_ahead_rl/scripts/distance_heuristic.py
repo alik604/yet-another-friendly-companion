@@ -26,6 +26,16 @@ class DistanceHeuristic:
     # Args:
     # target_predicted_state: [x,y,theta]
     # obstacle_states: [(xy and size)]
+    def calculate_goal(self, target_predicted_state, vector):
+        vector = [self.target_distance*4, 0]
+        vector = self.rotate_vector(vector, target_predicted_state[2])
+
+        goal = [target_predicted_state[0] + vector[0], target_predicted_state[1] + vector[1]]
+        return goal
+
+    # Args:
+    # target_predicted_state: [x,y,theta]
+    # obstacle_states: [(xy and size)]
     def calculate_vector(self, target_predicted_state, obstacle_states):
         vector = [self.target_distance, 0]
         # vector = self.rotate_vector(vector, target_predicted_state[2])
@@ -53,7 +63,9 @@ if __name__ == '__main__':
             person_state = env.get_person_pos()
 
             action = dis_heuristic.calculate_vector(person_state, [])
-
+            goal = dis_heuristic.calculate_goal(person_state, action)
+            
+            env.set_marker_pose(goal)
             state, reward, done, _ = env.step(action)
             # print(state)
 
