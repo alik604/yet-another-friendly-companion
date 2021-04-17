@@ -1,9 +1,9 @@
 import torch
 import torch as pt
-import torch.nn as nn
+from torch import nn, optim, distributions
+# import torch.nn as nn
+# import torch.optim as optim
 import torch.nn.functional as F
-import torch.optim as optim
-from torch.distributions.normal import Normal
 from torch.autograd import Variable
 
 import argparse
@@ -12,7 +12,6 @@ from time import sleep
 import sys
 from os.path import join, exists
 from os import mkdir, unlink, listdir, getpid
-# from torch import nn, optim, distributions
 import cma
 import numpy as np
 import gym
@@ -50,7 +49,7 @@ parser.add_argument('--logdir', default='model_weights/world_model', type=str, h
 parser.add_argument('--display', default=True, action='store_true', help="Use progress bars if specified.")
 args = parser.parse_args()
 time_limit = 1000
-print(f'args.display {args.display}')
+print(f'args.logdir {args.logdir}')
 
 
 ###############################  hyper parameters  #########################
@@ -68,8 +67,8 @@ reward = 1
 
 def gmm_loss(batch, mus, sigmas, logpi, reduce:bool = True):
     batch = batch.unsqueeze(-2)
-    normal_dist = Normal(mus, sigmas)
-    g_log_probs = normal_dist.log_prob(batch)
+    normal_dist = distributions.Normal(mus, sigmas)
+    g_log_probs = distributions.normal_dist.log_prob(batch)
     g_log_probs = logpi + torch.sum(g_log_probs, dim=-1)
     max_log_probs = torch.max(g_log_probs, dim=-1, keepdim=True)[0]
     g_log_probs = g_log_probs - max_log_probs
@@ -111,8 +110,7 @@ class RNN(nn.Module):
       
     def step(self, obs, h):
       state = torch.cat([obs, h], dim=-1)
-      action = self.fc(state)
-      return action
+      return self.fc(state)
 
     
 
@@ -385,7 +383,7 @@ if __name__ == '__main__':
   optimizer = optim.RMSprop(model.parameters())
   criterion = torch.nn.MSELoss()
 
-  batch_size = 100
+  batch_size = 1
   ls = []
   losses = []
   num_episodes = 10
@@ -521,7 +519,7 @@ if __name__ == '__main__':
       # retrieve results
       if args.display:
           pbar = tqdm(total=pop_size * n_samples)
-      print("pbar was done!!!")
+    #   print("pbar was done!!!")
     
       for _ in range(pop_size * n_samples):
         print("We are in this for loop?")
