@@ -27,6 +27,7 @@ if __name__ == '__main__':
 
     mode = 0
     for i in range(N_EPISODES):
+        print(f"Running episode: {i} of {N_EPISODES}")
         env.set_person_mode(mode % 5)   # Cycle through different person modes
         mode += 1
         state = env.reset()
