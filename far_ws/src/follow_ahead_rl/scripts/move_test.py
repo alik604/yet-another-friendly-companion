@@ -36,6 +36,7 @@ if __name__ == '__main__':
         for i in range(EPISODE_LEN):
             action = [0.5, 0]
             state, reward, done, _ = env.step(action)
+            # print(state)
 
 
             sleep(1)
