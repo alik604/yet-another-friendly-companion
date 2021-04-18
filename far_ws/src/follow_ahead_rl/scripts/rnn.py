@@ -30,6 +30,7 @@ from tqdm import tqdm
 import torch
 import torch as pt
 from torch import nn, optim, distributions
+import matplotlib.pyplot as plt
 
 # import torch.nn.functional as F
 # from torch.autograd import Variable
@@ -406,10 +407,12 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses = []
-    num_episodes = 10
-    episode_length = 500 # I assume 1000 is a good upperbound for this var. 500 for testing
+    ls = []
+    num_episodes = 20
+    episode_length = 1000 # I assume 1000 is a good upperbound for this var. 500 for testing
     print("#################### LETS DO THE RNN ###############################")
 
+    epoch_count = []
     
     for i_episode in range(num_episodes): 
         # Initialize the environment and state
@@ -417,16 +420,14 @@ if __name__ == "__main__":
         state = torch.from_numpy(np.array([state]))
         hid = ( torch.zeros(batch_size, model.hidden).to(device),
                 torch.zeros(batch_size, model.hidden).to(device))
-        ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss) 
+        #ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss)  -> i dont think we need this atm
         ls.append(state)
+        epoch_count.append(i_episode)
         loss = 0.0
-        # obs_batch, next_obs_batch = ls[:-1], ls[1:]
-        
         for i in range(0, episode_length):
             state = state.to(device=device)
             
-            ls.append(state)
-            next_obs = ls[-1] # TODO check is next_obs correct
+            #ls.append(state)
 
             # act_batch = len(ls)
             pred = model.step(state, hid[0])
@@ -434,32 +435,42 @@ if __name__ == "__main__":
             action = torch.argmax(pred)
             action = action.cpu().numpy()
             mu, sigma, hid = model.forward(state, pred, hid)
-            dist = distributions.Normal(loc=mu, scale=sigma)
-            nll = -dist.log_prob(next_obs)  # negative log-likelihood
-            nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
-            nll = torch.mean(nll, dim=0)    # mean over batch
-            loss += nll
-            loss = loss/i  # mean over trajectory # why take the norm of an avg? 
-            val = loss.item()
-            print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
-            
-            # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
-            # optimizer.zero_grad()
-            # loss.backward()
-            # optimizer.step()
-            # val = loss.item()
-            # print(f'val2 is {val}') # TODO back prop here
+
 
             state, _, _, _ = env.step(action)
             # print(f'state before {state}')
             # print(f'state mid    {np.array([state)}')
-            state = torch.from_numpy(np.array([state])) # TODO make more efficient 
-            # state = torch.tensor(state)
-            # print(f'state after {state}')
-            # print("#################### UPDATED STATE #########################")
+            state = torch.from_numpy(np.array([state])) # TODO make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
+
+            #print("this si the next state", state)
+            dist = distributions.Normal(loc=mu, scale=sigma)
+            nll = -dist.log_prob(state)  # negative log-likelihood of the next state!
+            nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
+            nll = torch.mean(nll, dim=0)    # mean over batch
+            loss += nll
+
+        loss = loss/episode_length  # mean over trajectory # why take the norm of an avg?  -> made it episode length instead of i
+        val = loss.item()
+        print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
+        loss.backward()
+        optimizer.step()
+        # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
+        # optimizer.zero_grad()
+        # loss.backward()
+        # optimizer.step()
+        # val = loss.item()
+        # print(f'val2 is {val}') # TODO back prop here
+
+        # state = torch.tensor(state)
+        # print(f'state after {state}')
+        # print("#################### UPDATED STATE #########################")
         losses.append(val)
     torch.save(model.state_dict(), rnn_filename)
 
+
+    #plt.plot(epoch_count, losses)
+    #plt.show()
+    
     cur_best = None
 
     p_queue = Queue()
@@ -577,6 +588,7 @@ if __name__ == "__main__":
     es.result_pretty()
     e_queue.put("EOP")
     env.close()
+    
     
 
 ##################### ALI'S NOTES ON THE LSTM ###################################
