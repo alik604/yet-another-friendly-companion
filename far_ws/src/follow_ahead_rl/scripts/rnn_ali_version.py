@@ -1,4 +1,16 @@
 # rnn.py ali's changes
+import argparse
+from os import mkdir, unlink, listdir, getpid
+from os.path import join, exists
+from time import sleep
+import sys
+import random
+import cma
+import gym
+import numpy as np
+import matplotlib.pyplot as plt
+from collections import namedtuple
+from tqdm import tqdm
 import torch
 import torch as pt
 from torch import nn, optim, distributions
@@ -6,64 +18,40 @@ from torch import nn, optim, distributions
 # import torch.optim as optim
 import torch.nn.functional as F
 from torch.autograd import Variable
-
-import argparse
-from tqdm import tqdm
-from time import sleep
-import sys
-from os.path import join, exists
-from os import mkdir, unlink, listdir, getpid
-import cma
-import numpy as np
-import gym
-import random
-import matplotlib.pyplot as plt
-from collections import namedtuple
-from itertools import count
-from copy import deepcopy
 from torch.multiprocessing import Process, Queue
 
-from torchvision import transforms
-#import torchvision.transforms as T
-#from typing import Tuple
 
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((64, 64)), #TODO: NEED TO KNOW WHAT THIS IS
-    transforms.ToTensor()
-])
 device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 use_cuda = False # torch.cuda.is_available()
 
 torch.manual_seed(1)
-
+np.random.seed(0)
+torch.manual_seed(0)  
 
 FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
 LongTensor = torch.cuda.LongTensor if use_cuda else torch.LongTensor
 ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
-# Tensor = FloatTensor
+
+###############################  hyper parameters  #########################
+#ENV_NAME = # 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'LunarLander-v2'
+RANDOMSEED = 42  # random seed
+ 
+LR = 0.001 
+reward = 1
+gaussian = 5
 
 
 parser = argparse.ArgumentParser()
-
 parser.add_argument('--logdir', default='model_weights/world_model', type=str, help='Where everything is stored.')
 parser.add_argument('--display', default=True, action='store_true', help="Use progress bars if specified.")
 args = parser.parse_args()
 time_limit = 1000
 print(f'args.logdir {args.logdir}')
-
-
-###############################  hyper parameters  #########################
-#ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
-ENV_NAME = 'LunarLander-v2'
-
-
-RANDOMSEED = 42  # random seed
- 
+print("First")
 ############################################################################
-LR = 0.001 
-reward = 1
-#gaussian = 5
+
+
 
 
 def gmm_loss(batch, mus, sigmas, logpi, reduce:bool = True):
@@ -82,16 +70,17 @@ def gmm_loss(batch, mus, sigmas, logpi, reduce:bool = True):
         return -torch.mean(log_prob)
     return -log_prob
 
+
 class RNN(nn.Module):
-    def __init__(self, obs_dim, act_dim, gaussian, hid_dim=64, drop_prob = 0.5):
+    def __init__(self, obs_dim, act_dim, hid_dim=64, drop_prob = 0.5):
         super(RNN, self).__init__()
         self.action_dim = act_dim
         self.observation_dim = obs_dim 
         self.hidden = hid_dim
-        self.gaussian_mix = gaussian
         self.reward = reward
         self.learning_r = LR 
-        gmm_out = (2*obs_dim+1) * gaussian + 2
+        # self.gaussian_mix = gaussian
+        # gmm_out = (2*obs_dim+1) * gaussian + 2
 
         self.rnn = nn.LSTMCell(obs_dim+act_dim, hid_dim)
         self.fc = nn.Linear(obs_dim+hid_dim, act_dim)
@@ -114,7 +103,6 @@ class RNN(nn.Module):
       return self.fc(state)
 
     
-
 class Controller(nn.Module):
     """ Controller """
     def __init__(self, latents, actions, recurrents = 64):
@@ -127,22 +115,20 @@ class Controller(nn.Module):
       return self.fc(state)
 
 
-
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
 class ReplayMemory(object):
 
     def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
         self.position = 0
+        self.Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
+
 
     def push(self, *args):
         """Saves a transition."""
         if len(self.memory) < self.capacity:
             self.memory.append(None)
-        self.memory[self.position] = Transition(*args)
+        self.memory[self.position] = self.Transition(*args)
         self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
@@ -151,7 +137,7 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-#print("#################### RNN WEIGHTS SAVED #########################")
+
 class RolloutGenerator(object):
     """ Utility to generate rollouts.
     Encapsulate everything that is needed to generate rollouts in the TRUE ENV
@@ -172,23 +158,24 @@ class RolloutGenerator(object):
         obs_dim = 8
         act_dim = 4
         self.model = rnn
-        # TODO uncommet
-        #self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
+        # TODO this is the right place to load the rnn weights
+        # self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
         self.controller = Controller(obs_dim , act_dim).to(device)
 
         # load controller if it was previously saved
         if exists(ctrl_file):
             ctrl_state = torch.load(ctrl_file, map_location={'cuda:0': str(device)})
-            print("Loading Controller with reward {}".format(
-                ctrl_state['reward']))
+            print(f"Loading Controller with reward {ctrl_state['reward']}")
             self.controller.load_state_dict(ctrl_state['state_dict'])
+        else:
+            print('\n\nController weights not found!\n\n')
 
         self.env = gym.make(ENV_NAME)
         self.device = device
 
         self.time_limit = time_limit
     
-    def get_action_and_transition(self, hidden, seq_len=1600, render=False):
+    def get_action_and_transition(self, hidden, seq_len=1600):
         """ Get action and transition.
         Encode obs to latent using the VAE, then obtain estimation for next
         latent and next hidden state using the MDRNN and compute the controller
@@ -225,7 +212,7 @@ class RolloutGenerator(object):
         #_, _, _, _, _, next_hidden = self.mdrnn(action, latent_mu, hidden)
         return act, obs
   
-    def rollout(self, params, render=False):
+    def rollout(self, params, render=False): 
         """ Execute a rollout and returns minus cumulative reward.
         Load :params: into the controller and execute a single rollout. This
         is the main API of this class.
@@ -238,12 +225,8 @@ class RolloutGenerator(object):
 
         obs = self.env.reset()
 
-        # This first render is required !
-        self.env.render()
 
-        hidden = [
-            torch.zeros(1, 64).to(self.device)
-            for _ in range(2)]
+        hidden = [ torch.zeros(1, 64).to(self.device) for _ in range(2)]
 
         cumulative = 0
         i = 0
@@ -251,22 +234,17 @@ class RolloutGenerator(object):
             action, hidden = self.get_action_and_transition(hidden)
             obs, reward, done, _ = self.env.step(action)
 
-            if render:
+            if render or i == 0: # This first render is required !
                 self.env.render()
 
             cumulative += reward
-            #print(cumulative)
+
             if done or i > self.time_limit:
-                return - cumulative
+                return -cumulative
             i += 1
             #break
+        self.env.close() # TODO added causing problums in windows thread exiting 
 
-tmp_dir = join(args.logdir, 'weights')
-if not exists(tmp_dir):
-    mkdir(tmp_dir)
-else:
-    for fname in listdir(tmp_dir):
-        unlink(join(tmp_dir, fname))
 
 ################################################################################
 #                           Thread routines                                    #
@@ -291,7 +269,7 @@ def slave_routine(p_queue, r_queue, e_queue, p_index, model):
     # init routine
     #gpu = p_index % torch.cuda.device_count()
     #device = torch.device('cuda:{}'.format(gpu) if torch.cuda.is_available() else 'cpu')
-    device = 'cpu'
+    # device = 'cpu'
     #print("we are in slave_routine")
     # redirect streams
     #sys.stdout = open(join(tmp_dir, str(getpid()) + '.out'), 'a')
@@ -309,7 +287,6 @@ def slave_routine(p_queue, r_queue, e_queue, p_index, model):
               s_id, params = p_queue.get()
               #print("we are putting stuff in r_queue")
               r_queue.put((s_id, r_gen.rollout(params)))
-
 
 
 ################################################################################
@@ -359,13 +336,24 @@ EPS_START = 0.9
 EPS_END = 0.05
 EPS_DECAY = 200
 
+tmp_dir = join(args.logdir, 'rnn')
+if not exists(tmp_dir): mkdir(tmp_dir)
+# else:
+#     for fname in listdir(tmp_dir):
+#         unlink(join(tmp_dir, fname)) # don't delete the weights... -_-
+
+
 
 if __name__ == '__main__':
+  print("secound")
+ 
+  # hard coded for testing!!
+  n_samples = 2
+  pop_size = 2
+  num_workers = 3
+  time_limit = 1000
   
-  np.random.seed(0)
-  torch.manual_seed(0)    
-  env =gym.make(ENV_NAME)
-  #env = gym.make('CartPole-v0').unwrapped
+  env = gym.make(ENV_NAME)
 
   #print(env)
   env.seed(0)
@@ -374,7 +362,7 @@ if __name__ == '__main__':
   act_dim = env.action_space.n
 
   print("obs_dim + act_dim", obs_dim+act_dim)
-  model = RNN(obs_dim, act_dim, 5)
+  model = RNN(obs_dim, act_dim)
 
   model.zero_grad()
   model.to(device)
@@ -389,13 +377,13 @@ if __name__ == '__main__':
   losses = []
   num_episodes = 10
 
-  print("#################### LETS DO THE RNN #########################")
+  print("#################### LETS DO THE RNN ###############################")
   try:
-    filename= args.logdir + 'my_rnn.pt'
-    #model.load_state_dict(pt.load(filename)) # TODO added by ali
-    #print(f'LSTM weights loaded')
+    filename= args.logdir + '/rnn/my_rnn.pt'
+    model.load_state_dict(pt.load(filename))
+    print(f'LSTM weights loaded')
   except Exception as e:
-    print(f'Error is loading weights, file might not be found or model may have changed\n{e}')
+    print(f'Error is loading weights, file might not be found or model may have changed\n{e}\n\n')
 
   for i_episode in range(num_episodes):
       # Initialize the environment and state
@@ -414,8 +402,8 @@ if __name__ == '__main__':
           act_batch = len(ls)
           #action = torch.tensor([[0,0 ,0 ,0]]) #TODO figure out how to get action state.
           pred = model.step(state, hid[0])
-          m = nn.Softmax(dim=1)
-          act = m(pred) 
+          softmax = nn.Softmax(dim=1)
+          act = softmax(pred) # TODO technically we should not bother with this softmax is a montonicly increase function; it is pointless for the purpose of applying argmax. -Ali 
           act = torch.argmax(act)
           act = act.cpu().numpy()
           mu, sigma, hid = model.forward(state, pred, hid)
@@ -435,13 +423,6 @@ if __name__ == '__main__':
 
 
 
-  #hard coded for testing!!
-  n_samples = 2
-  pop_size = 2
-  num_workers = 4
-  time_limit = 1000
-
-
   cur_best = None
 
 
@@ -449,14 +430,14 @@ if __name__ == '__main__':
   r_queue = Queue()
   e_queue = Queue()
 
-  print("#################### QUEUES ARE INITIALIZED #######################")
+  print("#################### QUEUES ARE INITIALIZED ##################")
 
 
   for p_index in range(num_workers):
       Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, model)).start()
 
 
-  print("#################### PROCESSING COMPLETE #########################")
+  print("#################### PROCESSING COMPLETE ######################")
 
 
   def evaluate(solutions, results, rollouts=100):
@@ -487,7 +468,7 @@ if __name__ == '__main__':
   if not exists(ctrl_dir):
       mkdir(ctrl_dir)
 
-  print("#################### LET US SETUP #########################")
+  print("#################### LET US SETUP #################################")
   controller = Controller(obs_dim , act_dim)
 
   print("#################### CONTROLLER SETUP #########################")
@@ -501,9 +482,9 @@ if __name__ == '__main__':
 
 
 
-  print("#################### ABOUT TO RUN CONTROLLER TRAINING #########################")
+  print("#################### ABOUT TO RUN CONTROLLER TRAINING ####################")
   while not es.stop():
-      if cur_best is not None and - cur_best > target_return:
+      if cur_best is not None and -cur_best > target_return:
           print("Already better than target, breaking...")
           break
 
@@ -523,7 +504,7 @@ if __name__ == '__main__':
     #   print("pbar was done!!!")
     
       for _ in range(pop_size * n_samples):
-        print("We are in this for loop?")
+        # print("We are in this for loop?")
         while r_queue.empty():
             sleep(.1)
         r_s_id, r = r_queue.get()
@@ -532,7 +513,7 @@ if __name__ == '__main__':
       
         if args.display:
             pbar.update(1)
-
+      # for loop done
       if args.display:
           pbar.close()
 
@@ -542,18 +523,18 @@ if __name__ == '__main__':
       # evaluation and saving
       if epoch % log_step == log_step - 1:
           best_params, best, std_best = evaluate(solutions, r_list)
-          print("Current evaluation: {}".format(best))
+          print(f"Current evaluation: {best}")
           if not cur_best or cur_best > best:
               cur_best = best
-              print("Saving new best with value {}+-{}...".format(-cur_best, std_best))
+              print(f"Saving new best with value {-cur_best}+-{std_best}...")
               load_parameters(best_params, controller)
               torch.save(
                   {'epoch': epoch,
-                  'reward': - cur_best,
+                  'reward': -cur_best,
                   'state_dict': controller.state_dict()},
                   join(ctrl_dir, 'best.tar'))
-          if - best > target_return:
-              print("Terminating controller training with value {}...".format(best))
+          if -best > target_return:
+              print(f"Terminating controller training with value {best}...")
               break
 
 
