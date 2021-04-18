@@ -9,14 +9,15 @@ I left comments with TODO. to make them easy to spot.
 
 
 for Ali TODO
-check if weights and being saved and loaded... 
-I do not see controller weights are being loaded anywere
+get CUDA working. get with queue
+get batch_size working
 '''
 
 # rnn.py ali's changes
 import argparse
 from os import mkdir, unlink, listdir, getpid
 from os.path import join, exists
+from pickle import decode_long
 from time import sleep
 import sys
 import random
@@ -30,15 +31,13 @@ import torch
 import torch as pt
 from torch import nn, optim, distributions
 
-# import torch.nn as nn
-# import torch.optim as optim
-import torch.nn.functional as F
-from torch.autograd import Variable
+# import torch.nn.functional as F
+# from torch.autograd import Variable
 from torch.multiprocessing import Process, Queue
 
 
-device = "cpu"  # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-use_cuda = False  # torch.cuda.is_available()
+device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+# use_cuda = torch.cuda.is_available()
 
 RANDOMSEED = 42  # random seed
 torch.manual_seed(RANDOMSEED)
@@ -52,19 +51,19 @@ torch.manual_seed(RANDOMSEED)
 ###############################  hyper parameters  #########################
 # ENV_NAME = # 'gazeborosAC-v0'  # environment name
 ENV_NAME = "LunarLander-v2"
-batch_size = 1 # 128 # TODO fix
+batch_size = 1 # 128 # TODO fix https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
 # GAMMA = 0.999
 # EPS_START = 0.9
 # EPS_END = 0.05
 # EPS_DECAY = 200
 LR = 0.001
-reward = 1
+# reward = 1
 latent_space = 64 # hidden of the LSTM & of the controller 
 # gaussian = 5
 
 num_workers = 2
-pop_size = 2
-n_samples = 2
+pop_size = 2 #4
+n_samples = 2 #4
 
 
 parser = argparse.ArgumentParser()
@@ -101,7 +100,7 @@ class RNN(nn.Module):
         self.action_dim = act_dim
         self.observation_dim = obs_dim
         self.hidden = hid_dim
-        self.reward = reward
+        # self.reward = reward
         self.learning_r = LR
         # self.gaussian_mix = gaussian
         # gmm_out = (2*obs_dim+1) * gaussian + 2
@@ -123,6 +122,8 @@ class RNN(nn.Module):
         return mu, sigma, (h, c)
 
     def step(self, obs, h):
+        print(obs.size())
+        print(h.size())
         state = torch.cat([obs, h], dim=-1)
         return self.fc(state)
 
@@ -267,8 +268,9 @@ class RolloutGenerator(object):
             action, hidden = self.get_action_and_transition(hidden)
             obs, reward, done, _ = self.env.step(action)
 
-            if render or i == 0:  # This first render is required !
-                self.env.render()
+            if render or i == 0:  # This first render is required! # TODO is it? 
+                # self.env.render()
+                pass
 
             cumulative += reward
 
@@ -408,7 +410,7 @@ if __name__ == "__main__":
     ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss) 
     losses = []
     num_episodes = 10
-    episode_length = 500 # I assume 5000 is a good upperbound for this var
+    episode_length = 500 # I assume 1000 is a good upperbound for this var. 500 for testing
     print("#################### LETS DO THE RNN ###############################")
 
     
@@ -423,6 +425,8 @@ if __name__ == "__main__":
         # obs_batch, next_obs_batch = ls[:-1], ls[1:] # TODO Emma, is this correct? `ls[1:]` seems odd because this is in a loop
         
         for i in range(0, episode_length):
+            state = state.to(device=device)
+            
             ls.append(state)
             next_obs = ls[1:]
             next_obs = next_obs[0]
@@ -438,13 +442,11 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=-1)  # mean over dimensions
             nll = torch.mean(nll, dim=0)  # mean over batch
             loss += nll
-            loss = loss / len(ls)  # mean over trajectory
-            # val = loss.item()
-            # print(f'val  is {val}') # TODO back prop here
+            loss = loss / len(ls)  # mean over trajectory #TODO maybe devide by i? 
+            val = loss.item()
+            # print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
             
             # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
-            # # TODO: optimize `loss` using `self.optimizer`
-            # # HINT: remember to `zero_grad` first
             # optimizer.zero_grad()
             # loss.backward()
             # optimizer.step()
@@ -558,7 +560,7 @@ if __name__ == "__main__":
         # evaluation and saving
         if epoch % log_step == log_step - 1:
             best_params, best, std_best = evaluate(solutions, r_list)
-            print(f"Current evaluation: {cur_best:.4f}+/-{std_best}") # :.2f
+            print(f"Current evaluation: {cur_best}+/-{std_best}") # :.2f
             if not cur_best or cur_best > best:
                 cur_best = best
                 print(f"Saving...")
