@@ -409,7 +409,7 @@ if __name__ == "__main__":
     losses = []
     ls = []
     num_episodes = 20
-    episode_length = 1000 # I assume 1000 is a good upperbound for this var. 500 for testing
+    episode_length = 500 # I assume 1000 is a good upperbound for this var. 500 for testing
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
