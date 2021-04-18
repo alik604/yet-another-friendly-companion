@@ -5,6 +5,9 @@ Hey Emma, we arn't using these. im not sure why not
 I do not know if we are optimizing the model
     
 I left comments with TODO. to make them easy to spot.
+
+
+
 for Ali TODO
 get CUDA working. get with queue
 get batch_size working
@@ -58,9 +61,10 @@ LR = 0.001
 latent_space = 64 # hidden of the LSTM & of the controller 
 # gaussian = 5
 
-num_workers = 2
 pop_size = 2 #4
 n_samples = 2 #4
+num_workers = 32
+num_workers = min(num_workers, n_samples * pop_size) # not sure if any benefit from more than 3 workers 
 
 
 parser = argparse.ArgumentParser()
@@ -119,8 +123,8 @@ class RNN(nn.Module):
         return mu, sigma, (h, c)
 
     def step(self, obs, h):
-        print(obs.size())
-        print(h.size())
+        # print(obs.size()) (1, 8)
+        # print(h.size()) # (batch_size, 64)
         state = torch.cat([obs, h], dim=-1)
         return self.fc(state)
 
@@ -130,6 +134,7 @@ class Controller(nn.Module):
 
     def __init__(self, latents, actions, recurrents=latent_space):
         """[summary]
+
         Args:
             latents: [obs_dim]
             actions: [action_dim]
@@ -256,7 +261,7 @@ class RolloutGenerator(object):
 
         obs = self.env.reset()
 
-        hidden = [torch.zeros(1, 64).to(self.device) for _ in range(2)]
+        hidden = [torch.zeros(1, 64).to(self.device) for _ in range(2)] # 1 should be batch_size
 
         cumulative = 0
         i = 0
@@ -370,10 +375,6 @@ if not exists(ctrl_dir):
 rnn_dir = join(args.logdir, "rnn")
 if not exists(rnn_dir):
     mkdir(rnn_dir)
-# else:
-#     for fname in listdir(rnn_dir):
-#         unlink(join(rnn_dir, fname)) # don't delete the weights... -_-
-
 
 if __name__ == "__main__":
 
@@ -403,29 +404,29 @@ if __name__ == "__main__":
     optimizer = optim.RMSprop(model.parameters())
     criterion = torch.nn.MSELoss()
     # softmax = nn.Softmax(dim=1)
-    ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss) 
+    
     losses = []
     num_episodes = 10
     episode_length = 500 # I assume 1000 is a good upperbound for this var. 500 for testing
     print("#################### LETS DO THE RNN ###############################")
 
     
-    for i_episode in range(num_episodes):
+    for i_episode in range(num_episodes): 
         # Initialize the environment and state
         state = env.reset()
         state = torch.from_numpy(np.array([state]))
         hid = ( torch.zeros(batch_size, model.hidden).to(device),
                 torch.zeros(batch_size, model.hidden).to(device))
+        ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss) 
         ls.append(state)
         loss = 0.0
-        # obs_batch, next_obs_batch = ls[:-1], ls[1:] # TODO Emma, is this correct? `ls[1:]` seems odd because this is in a loop
+        # obs_batch, next_obs_batch = ls[:-1], ls[1:]
         
         for i in range(0, episode_length):
             state = state.to(device=device)
             
             ls.append(state)
-            next_obs = ls[1:]
-            next_obs = next_obs[0]
+            next_obs = ls[-1] # TODO check is next_obs correct
 
             # act_batch = len(ls)
             pred = model.step(state, hid[0])
@@ -435,12 +436,12 @@ if __name__ == "__main__":
             mu, sigma, hid = model.forward(state, pred, hid)
             dist = distributions.Normal(loc=mu, scale=sigma)
             nll = -dist.log_prob(next_obs)  # negative log-likelihood
-            nll = torch.mean(nll, dim=-1)  # mean over dimensions
-            nll = torch.mean(nll, dim=0)  # mean over batch
+            nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
+            nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
-            loss = loss / len(ls)  # mean over trajectory #TODO maybe devide by i? 
+            loss = loss/i  # mean over trajectory # why take the norm of an avg? 
             val = loss.item()
-            # print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
+            print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
             
             # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
             # optimizer.zero_grad()
