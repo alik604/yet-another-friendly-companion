@@ -1,3 +1,18 @@
+'''
+Hey Emma, we arn't using these. im not sure why not
+    optimizer = optim.RMSprop(model.parameters())
+    criterion = torch.nn.MSELoss()
+I do not know if we are optimizing the model
+    
+I left comments with TODO. to make them easy to spot.
+
+
+
+for Ali TODO
+check if weights and being saved and loaded... 
+I do not see controller weights are being loaded anywere
+'''
+
 # rnn.py ali's changes
 import argparse
 from os import mkdir, unlink, listdir, getpid
@@ -37,10 +52,19 @@ torch.manual_seed(RANDOMSEED)
 ###############################  hyper parameters  #########################
 # ENV_NAME = # 'gazeborosAC-v0'  # environment name
 ENV_NAME = "LunarLander-v2"
-
+batch_size = 1 # 128 # TODO fix
+# GAMMA = 0.999
+# EPS_START = 0.9
+# EPS_END = 0.05
+# EPS_DECAY = 200
 LR = 0.001
 reward = 1
+latent_space = 64 # hidden of the LSTM & of the controller 
 # gaussian = 5
+
+num_workers = 2
+pop_size = 2
+n_samples = 2
 
 
 parser = argparse.ArgumentParser()
@@ -50,10 +74,10 @@ args = parser.parse_args()
 
 time_limit = 1000
 print(f"args.logdir {args.logdir}")
-print("First")
+print("First") # this gets called from every process, but not if its in main()... 
 ############################################################################
 
-
+# unlessed
 def gmm_loss(batch, mus, sigmas, logpi, reduce: bool = True):
     batch = batch.unsqueeze(-2)
     normal_dist = distributions.Normal(mus, sigmas)
@@ -72,7 +96,7 @@ def gmm_loss(batch, mus, sigmas, logpi, reduce: bool = True):
 
 
 class RNN(nn.Module):
-    def __init__(self, obs_dim, act_dim, hid_dim=64, drop_prob=0.5):
+    def __init__(self, obs_dim, act_dim, hid_dim=latent_space, drop_prob=0.5):
         super(RNN, self).__init__()
         self.action_dim = act_dim
         self.observation_dim = obs_dim
@@ -106,7 +130,14 @@ class RNN(nn.Module):
 class Controller(nn.Module):
     """ Controller """
 
-    def __init__(self, latents, actions, recurrents=64):
+    def __init__(self, latents, actions, recurrents=latent_space):
+        """[summary]
+
+        Args:
+            latents: [obs_dim]
+            actions: [action_dim]
+            recurrents: [Same as the hidden Dim of the LSTM]
+        """
         super().__init__()
         self.fc = nn.Linear(latents + recurrents, actions)
 
@@ -334,42 +365,34 @@ def load_parameters(params, controller):
         p.data.copy_(p_0)
 
 
-BATCH_SIZE = 128
-GAMMA = 0.999
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 200
-
-tmp_dir = join(args.logdir, "rnn")
-if not exists(tmp_dir):
-    mkdir(tmp_dir)
+ctrl_dir = join(args.logdir, "ctrl")
+if not exists(ctrl_dir):
+    mkdir(ctrl_dir)
+        
+rnn_dir = join(args.logdir, "rnn")
+if not exists(rnn_dir):
+    mkdir(rnn_dir)
 # else:
-#     for fname in listdir(tmp_dir):
-#         unlink(join(tmp_dir, fname)) # don't delete the weights... -_-
+#     for fname in listdir(rnn_dir):
+#         unlink(join(rnn_dir, fname)) # don't delete the weights... -_-
 
 
 if __name__ == "__main__":
-    print("secound")
-
-    # hard coded for testing!!
-    n_samples = 2
-    pop_size = 2
-    num_workers = 3
 
     env = gym.make(ENV_NAME)
-
-    # print(env)
     env.seed(RANDOMSEED)
+    
     obs_dim = env.observation_space.shape[0]  # this is for the lunar lander environment
     # act_dim = env.action_space.shape[0]
     act_dim = env.action_space.n
 
     print("obs_dim + act_dim", obs_dim + act_dim)
     model = RNN(obs_dim, act_dim)
-    filename = args.logdir + "/rnn/my_rnn.pt"
-    
+    rnn_filename = rnn_dir + "/my_rnn.pt"
+    ctrl_filename = ctrl_dir + "/best.tar"
+   
     try:
-        model.load_state_dict(pt.load(filename))
+        model.load_state_dict(pt.load(rnn_filename))
         print(f"LSTM weights loaded")
     except Exception as e:
         print(f"Error is loading weights, file might not be found or model may have changed\n{e}\n\n")
@@ -381,15 +404,14 @@ if __name__ == "__main__":
 
     optimizer = optim.RMSprop(model.parameters())
     criterion = torch.nn.MSELoss()
-
-    batch_size = 1
-    ls = []
+    # softmax = nn.Softmax(dim=1)
+    ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss) 
     losses = []
     num_episodes = 10
-
+    episode_length = 500 # I assume 5000 is a good upperbound for this var
     print("#################### LETS DO THE RNN ###############################")
 
-
+    
     for i_episode in range(num_episodes):
         # Initialize the environment and state
         state = env.reset()
@@ -398,20 +420,18 @@ if __name__ == "__main__":
                 torch.zeros(batch_size, model.hidden).to(device))
         ls.append(state)
         loss = 0.0
-        obs_batch, next_obs_batch = ls[:-1], ls[1:]
+        # obs_batch, next_obs_batch = ls[:-1], ls[1:] # TODO Emma, is this correct? `ls[1:]` seems odd because this is in a loop
         
-        for i in range(0, 10):  # TODO make this more than 10
+        for i in range(0, episode_length):
             ls.append(state)
             next_obs = ls[1:]
             next_obs = next_obs[0]
 
-            act_batch = len(ls)
-            # action = torch.tensor([[0,0 ,0 ,0]]) #TODO figure out how to get action state.
+            # act_batch = len(ls)
             pred = model.step(state, hid[0])
-            softmax = nn.Softmax(dim=1)
-            act = softmax(pred)  # TODO technically we should not bother with this softmax is a montonicly increase function; it is pointless for the purpose of applying argmax. -Ali
-            act = torch.argmax(act)
-            act = act.cpu().numpy()
+            # action = softmax(pred)  # TODO my suggestion was worng. technically we should not bother with this softmax is a montonicly increase function; it is pointless for the purpose of applying argmax. -Ali
+            action = torch.argmax(pred)
+            action = action.cpu().numpy()
             mu, sigma, hid = model.forward(state, pred, hid)
             dist = distributions.Normal(loc=mu, scale=sigma)
             nll = -dist.log_prob(next_obs)  # negative log-likelihood
@@ -419,13 +439,27 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=0)  # mean over batch
             loss += nll
             loss = loss / len(ls)  # mean over trajectory
-            val = loss.item()
+            # val = loss.item()
+            # print(f'val  is {val}') # TODO back prop here
+            
+            # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
+            # # TODO: optimize `loss` using `self.optimizer`
+            # # HINT: remember to `zero_grad` first
+            # optimizer.zero_grad()
+            # loss.backward()
+            # optimizer.step()
+            # val = loss.item()
+            # print(f'val2 is {val}') # TODO back prop here
 
-            state = env.step(act)
-            state = torch.from_numpy(np.array([state[0]]))
+            state, _, _, _ = env.step(action)
+            # print(f'state before {state}')
+            # print(f'state mid    {np.array([state)}')
+            state = torch.from_numpy(np.array([state])) # TODO make more efficient 
+            # state = torch.tensor(state)
+            # print(f'state after {state}')
             # print("#################### UPDATED STATE #########################")
         losses.append(val)
-    torch.save(model.state_dict(), filename)
+    torch.save(model.state_dict(), rnn_filename)
 
     cur_best = None
 
@@ -433,14 +467,12 @@ if __name__ == "__main__":
     r_queue = Queue()
     e_queue = Queue()
 
-    print("#################### QUEUES ARE INITIALIZED ##################")
+    print("#################### QUEUES ARE INITIALIZED #####################")
 
     for p_index in range(num_workers):
-        Process(
-            target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, model)
-        ).start()
+        Process(target=slave_routine, args=(p_queue, r_queue, e_queue, p_index, model)).start()
 
-    print("#################### PROCESSING COMPLETE ######################")
+    print("#################### PROCESSING COMPLETE #######################")
 
     def evaluate(solutions, results, rollouts=100):
         """Give current controller evaluation.
@@ -465,14 +497,20 @@ if __name__ == "__main__":
 
         return best_guess, np.mean(restimates), np.std(restimates)
 
-    ctrl_dir = join(args.logdir, "ctrl")
-    if not exists(ctrl_dir):
-        mkdir(ctrl_dir)
+
 
     print("#################### LET US SETUP #################################")
-    controller = Controller(obs_dim, act_dim)
+    controller = Controller(obs_dim, act_dim) # dummy instance
+    # TODO added by Ali. not sure why Author didn't have this here.... oh its a dummy instance -_- 
+    # try:
+    #     saved_data = torch.load(ctrl_filename) 
+    #     cur_best = -saved_data['reward']
+    #     controller.load_state_dict(pt.load(saved_data["state_dict"]))
+    #     print(f"controller weights loaded")
+    # except Exception as e:
+    #     print(f"Error is loading controller weights, file might not be found or model may have changed\n{e}\n\n")
 
-    print("#################### CONTROLLER SETUP #########################")
+    print("#################### CONTROLLER SETUP ##########################")
     parameters = controller.parameters()
     es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1, {"popsize": pop_size})
 
@@ -520,19 +558,16 @@ if __name__ == "__main__":
         # evaluation and saving
         if epoch % log_step == log_step - 1:
             best_params, best, std_best = evaluate(solutions, r_list)
-            print(f"Current evaluation: {best}")
+            print(f"Current evaluation: {cur_best:.4f}+/-{std_best}") # :.2f
             if not cur_best or cur_best > best:
                 cur_best = best
-                print(f"Saving new best with value {-cur_best}+-{std_best}...")
+                print(f"Saving...")
                 load_parameters(best_params, controller)
                 torch.save(
-                    {
-                        "epoch": epoch,
-                        "reward": -cur_best,
-                        "state_dict": controller.state_dict(),
-                    },
-                    join(ctrl_dir, "best.tar"),
-                )
+                    {"epoch": epoch,
+                     "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
+                     "state_dict": controller.state_dict(), },
+                        join(ctrl_dir, "best.tar"))
             if -best > target_return:
                 print(f"Terminating controller training with value {best}...")
                 break
