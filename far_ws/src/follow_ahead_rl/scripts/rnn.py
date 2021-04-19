@@ -18,7 +18,7 @@ import argparse
 from os import mkdir, unlink, listdir, getpid
 from os.path import join, exists
 from pickle import decode_long
-from time import sleep
+from time import sleep, time
 import sys
 import random
 import cma
@@ -380,13 +380,15 @@ if not exists(rnn_dir):
     mkdir(rnn_dir)
 
 if __name__ == "__main__":
+    #TODO: anthony said to append obstacles onto state -> to get laser scan!
+    #Anthony made changes to gym environment
 
     env = gym.make(ENV_NAME)
     #env.seed(RANDOMSEED)
     env.set_agent(0)
     
-    obs_dim = env.observation_space.shape[0]  # this is for our environment
-    action_dim = env.action_space.shape[0]
+    obs_dim = env.observation_space.shape[0]  # this is for our environment -> 67 dimensions: 47 = system state + 20 = laser scan
+    act_dim = env.action_space.shape[0]
     #act_dim = env.action_space.n
 
     print("obs_dim + act_dim", obs_dim + act_dim)
@@ -411,11 +413,13 @@ if __name__ == "__main__":
     
     losses = []
     ls = []
-    num_episodes = 20
-    episode_length = 500 # I assume 1000 is a good upperbound for this var. 500 for testing
+    num_episodes = 20 #ANTHONY SAID THIS SHOULD BE 100
+    episode_length = 500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
+    #TODO: IMPORTANT: ANTHONY SAID TO MAKE SURE EVERY INNER LOOP  15 SECONDS -> 
+    #Suggestion: ANTHONY -> said to do a data collection before training
     
     for i_episode in range(num_episodes): 
         # Initialize the environment and state
@@ -428,6 +432,7 @@ if __name__ == "__main__":
         ls.append(state)
         epoch_count.append(i_episode)
         loss = 0.0
+        now = time()
         for i in range(0, episode_length):
             state = state.to(device=device)
             
@@ -435,13 +440,15 @@ if __name__ == "__main__":
 
             # act_batch = len(ls)
             pred = model.step(state, hid[0])
+            #TODO: action goal is a x, y vector that is translative to the robot
+            #Important to acknowledge: Obstacle Avoidance -> if for some reason this doesnt work -> we might want our thing to output a linear and angular velocity. -> we will have to transition that to the robot-robot using the TEB
             # action = softmax(pred)  # TODO my suggestion was worng. technically we should not bother with this softmax is a montonicly increase function; it is pointless for the purpose of applying argmax. -Ali
             action = torch.argmax(pred)
             action = action.cpu().numpy()
             mu, sigma, hid = model.forward(state, pred, hid)
 
-
-            state, _, _, _ = env.step(action) #not sure what the data structure is 
+            #sleep(0.1) #TODO ANTHONY SAID TO INSERT SLEEP 
+            state, _, _, _ = env.step(action) #not sure what the data structure is  #TODO need to to put variable instead of underscore!!! 
             # print(f'state before {state}')
             # print(f'state mid    {np.array([state)}')
             state = torch.from_numpy(np.array([state])) # TODO #this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
@@ -453,6 +460,7 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
 
+        print(f"time taken = {time() - now}")
         loss = loss/episode_length  # mean over trajectory # why take the norm of an avg?  -> made it episode length instead of i
         val = loss.item()
         print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
