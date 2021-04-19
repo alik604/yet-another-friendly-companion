@@ -38,22 +38,58 @@ from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Twist
 
 from gazebo_msgs.srv import SetModelState
-
-import threading
-
 from gym.utils import seeding
+import threading
 
 import _thread
 
 from squaternion import Quaternion
-
 from simple_pid import PID
 
 import pickle
-
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Environment Parameters
+class EnvConfig:
+    # Boolean to make robots spawn at constant locations
+    USE_TESTING = False
+
+    # Set to move obstacles out of the way in case they exist but you don't want them in the way
+    USE_OBSTACLES = False
+
+    # Pattern to init obstacles
+    # 0: Places obstacles between robot and person
+    # 1: Places obstacles randomly within circle
+    OBSTACLE_MODE = 1
+
+    # Radius(meters) away from person robot for random placement(mode 1) of objects
+    OBSTACLE_RADIUS_AWAY = 3
+
+    # Obstacle size
+    OBSTACLE_SIZE = 0.5
+
+    # Allows/Denies Robot TEB Local Planner to avoid obstacles
+    SEND_TEB_OBSTACLES = True
+
+    # Gets person robot to use move base
+    PERSON_USE_MB = True
+
+    # Episode Length
+    EPISODE_LEN = 15
+
+    # Returns Human State only in get_observations if True
+    RETURN_HINN_STATE = True
+
+    # Size to reduce laser scan to
+    SCAN_REDUCTION_SIZE = 20
+
+    # If True, calls init_simulator() on set_agent() call
+    INIT_SIM_ON_AGENT = False
+
+    # If True, moves jackal bot out of the way and puts obstacles around person
+    TRAIN_HINN = False
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -148,9 +184,9 @@ class Robot():
         else:
             self.cmd_vel_pub =  rospy.Publisher('/{}/cmd_vel'.format(name), Twist, queue_size=1)
 
-        if "tb3" in self.name and self.use_movebase:
+        if ("tb3" in self.name and self.use_movebase) or ("person" in self.name and EnvConfig.PERSON_USE_MB):
             # Create an action client called "move_base" with action definition file "MoveBaseAction"
-            self.action_client_ = actionlib.SimpleActionClient('/move_base_{}'.format(self.agent_num),MoveBaseAction)
+            self.action_client_ = actionlib.SimpleActionClient('/move_base_{}'.format(self.name),MoveBaseAction)
             # Waits until the action server has started up and started listening for goals.
             self.action_client_.wait_for_server(rospy.rostime.Duration(0.4))
         else:
@@ -219,8 +255,6 @@ class Robot():
 
         return self.state_['position']
 
-
-
     def get_orientation(self):
         counter_problem = 0
         while self.state_['orientation'] is None:
@@ -284,6 +318,8 @@ class Robot():
             self.all_pose_.append(self.state_.copy())
             self.last_time_added = rospy.Time.now().to_sec()
 
+    def get_state(self):
+        return self.state_
 
     def get_velocity(self):
         return self.velocity_history.get_latest()
@@ -295,17 +331,26 @@ class Robot():
     def resume(self):
         self.is_pause = False
 
-    def take_action(self, action):
+    def take_action(self, action, target_orientation=None):
         if self.is_pause:
             return
 
         if self.use_goal:
-            pos = GazeborosEnv.denormalize(action[0:2], self.max_rel_pos_range)
-            pos_global = GazeborosEnv.get_global_position(pos, self.relative)
-            self.goal["orientation"] = self.get_orientation()
+            if "person" in self.name:                
+                pose = self.get_pos()
+                pos_global = [pose[0]+action[0], pose[1]+action[1]]
+            else:
+                pos = GazeborosEnv.denormalize(action[0:2], self.max_rel_pos_range)
+                pos_global = GazeborosEnv.get_global_position(pos, self.relative)
+                
+            if target_orientation:
+                self.goal["orientation"] = target_orientation
+            else:
+                self.goal["orientation"] = self.get_orientation()
+
             self.goal["pos"] = pos_global
+
             if self.use_movebase:
-                #orientation = GazeborosEnv.denormalize(action[2], math.pi)
                 self.movebase_client_goal(pos_global, self.goal["orientation"])
         else:
             linear_vel = max(min(action[0]*self.max_linear_vel, self.max_linear_vel), -self.max_linear_vel)
@@ -459,21 +504,6 @@ class Robot():
 
         return self.goal
 
-
-    def get_pos(self):
-        counter_problem = 0
-        while self.state_['position'] is None:
-            if self.reset:
-                return (None, None)
-            if counter_problem > 20:
-                rospy.logwarn("waiting for pos to be available {}/{}".format(counter_problem/10, 20))
-            time.sleep(0.01)
-            counter_problem += 1
-            if counter_problem > 200:
-                raise Exception('Probable shared memory issue happend')
-
-        return self.state_['position']
-
     def get_laser_image(self):
         return np.expand_dims(self.scan_image, axis=2)
 
@@ -499,12 +529,11 @@ class GazeborosEnv(gym.Env):
                 }
         #self.path_follower_test_settings = {0:(7, 43, "traj_3", True)#(7,2, "traj_1", True, True), 1:(7, 12, "traj_2", True, True)}
 
-        self.is_testing = False
+        self.is_testing = EnvConfig.USE_TESTING
         self.small_window_size = False
         self.use_predifined_mode_person = True
-        self.use_goal = False
+        self.use_goal = True
         self.use_orientation_in_observation = True
-
 
         self.collision_distance = 0.3
         self.best_distance = 1.5
@@ -512,6 +541,15 @@ class GazeborosEnv(gym.Env):
         self.window_size = 10
         self.use_movebase = True
         self.use_reachability = False
+
+        self.use_obstacles = EnvConfig.USE_OBSTACLES
+        self.obstacle_mode = EnvConfig.OBSTACLE_MODE
+        self.obstacle_names = []
+        
+        self.person_scan = [1000.0 for i in range(EnvConfig.SCAN_REDUCTION_SIZE)]
+        self.person_use_move_base = EnvConfig.PERSON_USE_MB
+        self.person_mode = 0
+        self.position_thread = None
 
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
@@ -525,7 +563,6 @@ class GazeborosEnv(gym.Env):
             self.use_noise = False
             self.use_reverse = False
             self.is_use_test_setting = True
-
 
         self.fallen = False
         self.is_max_distance = False
@@ -541,14 +578,18 @@ class GazeborosEnv(gym.Env):
 
         self.test_simulation_ = False
 
-        observation_dimentation = 46
+        observation_dimensions = 46
         if self.use_orientation_in_observation:
-            observation_dimentation += 1
+            observation_dimensions += 1
 
         if self.small_window_size:
-            observation_dimentation -= 20
+            observation_dimensions -= 20
 
-        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(observation_dimentation,))
+        if EnvConfig.RETURN_HINN_STATE:
+            observation_dimensions = 23
+            observation_dimensions += EnvConfig.SCAN_REDUCTION_SIZE
+
+        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(observation_dimensions,))
         self.current_obsevation_image_ = np.zeros([2000,2000,3])
         self.current_obsevation_image_.fill(255)
 
@@ -569,12 +610,43 @@ class GazeborosEnv(gym.Env):
             with open('data/reachability.pkl', 'rb') as f:
                 self.reachabilit_value = pickle.load(f)
 
+    def get_person_pos(self):
+        theta = self.person.get_orientation()
+        xy = self.person.get_pos()
+        return [xy[0], xy[1], theta]
+    
+    def get_system_velocities(self):
+        robot_state = self.robot.get_state()
+        person_state = self.person.get_state()
+
+        robot_lin_velocity = robot_state["velocity"][0]
+        robot_angular_velocity = robot_state["velocity"][1]
+        robot_orientation = robot_state["orientation"]
+
+        person_lin_velocity = person_state["velocity"][0]
+        person_angular_velocity = person_state["velocity"][1]
+
+        x_distance_between = person_state["position"][0] - robot_state["position"][0]
+        y_distance_between = person_state["position"][1] - robot_state["position"][1]
+
+        dx_dt = -person_lin_velocity + robot_lin_velocity * math.cos(robot_orientation) + person_angular_velocity * y_distance_between
+        dy_dt = robot_lin_velocity * math.sin(robot_orientation) - person_angular_velocity * x_distance_between
+        da_dt = robot_angular_velocity - person_angular_velocity
+
+        return (dx_dt, dy_dt, da_dt)
+
     def get_test_path_number(self):
         rospy.loginfo("current path idx: {}".format(self.path_follower_current_setting_idx))
         return self.path_follower_test_settings[self.path_follower_current_setting_idx][2]
 
     def use_test_setting(self):
         self.is_use_test_setting = True
+    
+    def set_person_mode(self, setting):
+        self.person_mode = setting
+
+    def set_use_obstacles(self, setting):
+        self.use_obstacles = setting
 
     def set_agent(self, agent_num):
         try:
@@ -585,7 +657,8 @@ class GazeborosEnv(gym.Env):
         self.set_model_state_sp = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
         date_time = datetime.now().strftime("%m_%d_%Y_%H_%M_%S")
         self.agent_num = agent_num
-        self.obstacle_pub_ =  rospy.Publisher('/move_base_node_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
+        self.obstacle_pub_ =  rospy.Publisher('/move_base_node_tb3_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
+        self.person_obstacle_pub_ =  rospy.Publisher('/move_base_node_person_{}/TebLocalPlannerROS/obstacles'.format(self.agent_num), ObstacleArrayMsg, queue_size=1)
         self.create_robots()
 
         self.path = {}
@@ -616,23 +689,119 @@ class GazeborosEnv(gym.Env):
 
         self.state_cb_prev_time = None
         self.model_states_sub = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_states_cb)
+        self.scan_sub = rospy.Subscriber("/person_{}/scan".format(self.agent_num), LaserScan, self.scan_cb)
 
-        with self.lock:
-            self.init_simulator()
+        if EnvConfig.INIT_SIM_ON_AGENT:
+            with self.lock:
+                self.init_simulator()
+    
+    def scan_cb(self, msg):
+        reduced_size = EnvConfig.SCAN_REDUCTION_SIZE
+        large_n = 1000.0
 
-    def model_states_cb(self,  states_msg):
+        div = int(len(msg.ranges)/reduced_size)
+        reduced_scan = []
+
+        count = 0
+        a_size = 0
+        avg = 0
+
+        # Reduce from 720 to reduced size
+        for r in msg.ranges:
+            if r > 0 and r < 20:
+                avg += r
+                a_size += 1
+            
+            count += 1
+            if count == div:
+                if a_size != 0:
+                    avg /= a_size
+                else:
+                    avg = large_n
+
+                reduced_scan.append(avg)
+
+                count = 0
+                a_size = 0
+                avg = 0
+                
+
+        self.person_scan = reduced_scan
+        pass
+
+    def create_obstacle_msg(self, name, pose):
+        obstacle_msg = ObstacleMsg()
+        obstacle_msg.id = 1
+
+        point = Point32()
+        point.x = pose.position.x
+        point.y = pose.position.y
+        point.z = pose.position.z
+
+        obstacle_msg.polygon.points.append(point)
+
+        # TODO probably needs some tweaking but works for regular cyn/box
+        #   - I think the robot could be ok to get closer to the obstacles?
+        # TODO polygon for box instead of using a circle
+        obstacle_msg.radius = EnvConfig.OBSTACLE_SIZE/2
+
+        obstacle_msg.orientation.x = pose.orientation.x
+        obstacle_msg.orientation.y = pose.orientation.y
+        obstacle_msg.orientation.z = pose.orientation.z
+        obstacle_msg.orientation.w = pose.orientation.w
+        obstacle_msg.velocities.twist.linear.x = 0
+        obstacle_msg.velocities.twist.angular.z = 0
+        
+        return obstacle_msg
+
+    def model_states_cb(self, states_msg):
+
+        # Grab Obstacle Names for Agent
+        if not self.obstacle_names:
+            for name in states_msg.name:
+                if "obstacle" in name:
+                    for char in name:
+                        if char.isdigit():
+                            if int(char) == self.agent_num:
+                                self.obstacle_names.append(name)
+
+        obstacle_msg_array = ObstacleArrayMsg()
+        obstacle_msg_array.header.stamp = rospy.Time.now()
+        obstacle_msg_array.header.frame_id = "tb3_{}/odom".format(self.agent_num)
+
+        person_obs_msg_array = ObstacleArrayMsg()
+        person_obs_msg_array.header.stamp = rospy.Time.now()
+        person_obs_msg_array.header.frame_id = "person_{}/odom".format(self.agent_num)
+
         for model_idx in range(len(states_msg.name)):
             found = False
             for robot in [self.robot, self.person]:
                 if states_msg.name[model_idx] == robot.name:
                     found = True
                     break
-            if not found:
-                continue
-            pos = states_msg.pose[model_idx]
-            euler = Quaternion(pos.orientation.w, pos.orientation.x, pos.orientation.y, pos.orientation.z).to_euler()
+                elif "obstacle" in states_msg.name[model_idx] and EnvConfig.SEND_TEB_OBSTACLES:
+                    obstacle_msg_array.obstacles.append(
+                        self.create_obstacle_msg(
+                            states_msg.name[model_idx], states_msg.pose[model_idx]
+                        )
+                    )
+                    person_obs_msg_array.obstacles.append(
+                        self.create_obstacle_msg(
+                            states_msg.name[model_idx], states_msg.pose[model_idx]
+                        )
+                    )
+            if not found:                
+                continue                
 
-            orientation = euler[0]
+            pos = states_msg.pose[model_idx]
+            euler = Quaternion(w=pos.orientation.w, x=pos.orientation.x, y=pos.orientation.y, z=pos.orientation.z).to_euler()
+
+            if EnvConfig.PERSON_USE_MB:
+                orientation = euler[2]
+            else:
+                # Preserve how Payam had it setup...
+                orientation = euler[0]
+
             fall_angle = np.deg2rad(90)
             if abs(abs(euler[1]) - fall_angle)< 0.1 or abs(abs(euler[2]) - fall_angle)<0.1:
                 self.fallen = True
@@ -646,13 +815,10 @@ class GazeborosEnv(gym.Env):
             state["velocity"] = (linear_vel, angular_vel)
             state["position"] = (pos_x, pos_y)
             state["orientation"] = orientation
+            
             robot.set_state(state)
-            if self.use_movebase and robot.name == self.person.name:
-                obstacle_msg_array = ObstacleArrayMsg()
-                obstacle_msg_array.header.stamp = rospy.Time.now()
-                obstacle_msg_array.header.frame_id = "tb3_{}/odom".format(self.agent_num)
+            if self.use_movebase:
                 obstacle_msg = ObstacleMsg()
-                obstacle_msg.header = obstacle_msg_array.header
                 obstacle_msg.id = 0
                 for x in range (5):
                     for y in range (5):
@@ -667,18 +833,23 @@ class GazeborosEnv(gym.Env):
                 obstacle_msg.orientation.w = pos.orientation.w
                 obstacle_msg.velocities.twist.linear.x = twist.linear.x
                 obstacle_msg.velocities.twist.angular.z = twist.linear.z
-                obstacle_msg_array.obstacles.append(obstacle_msg)
-                self.obstacle_pub_.publish(obstacle_msg_array)
+                
+                if robot.name == self.person.name:
+                    obstacle_msg.header = obstacle_msg_array.header
+                    obstacle_msg_array.obstacles.append(obstacle_msg)
+                else:
+                    obstacle_msg.header = person_obs_msg_array.header
+                    person_obs_msg_array.obstacles.append(obstacle_msg)
+        self.obstacle_pub_.publish(obstacle_msg_array)
+        self.person_obstacle_pub_.publish(person_obs_msg_array)
 
     def create_robots(self):
 
         self.person = Robot('person_{}'.format(self.agent_num),
-                            max_angular_speed=1, max_linear_speed=.6, agent_num=self.agent_num, window_size=self.window_size, is_testing=self.is_testing)
+                            max_angular_speed=1, max_linear_speed=.6, agent_num=self.agent_num, window_size=self.window_size, is_testing=self.is_testing, use_goal=self.use_goal, use_movebase=self.use_movebase)
 
         relative = self.person
 
-        if self.use_goal:
-            relative = self.person
         self.robot = Robot('tb3_{}'.format(self.agent_num),
                             max_angular_speed=1.8, max_linear_speed=0.8, relative=relative, agent_num=self.agent_num, use_goal=self.use_goal, use_movebase=self.use_movebase ,use_jackal=self.use_jackal, window_size=self.window_size, is_testing=self.is_testing)
 
@@ -715,9 +886,21 @@ class GazeborosEnv(gym.Env):
             idx_start = self.path_follower_test_settings[self.path_follower_current_setting_idx][1]
         else:
             idx_start = random.randint(0, len(self.path["points"]) - 20)
+        
         self.current_path_idx = idx_start
+
         if not self.is_use_test_setting and self.use_reverse and random.random() > 0.5:
             self.path["points"].reverse()
+
+        if self.person_use_move_base:
+            x = random.uniform(-3,3)
+            y = random.uniform(-3,3)
+            init_pos_person = {"pos": (x, y), "orientation":random.uniform(0, math.pi)}
+            random_pos_robot = self.find_random_point_in_circle(1.5, 2.5, init_pos_person["pos"])
+
+            init_pos_robot = {"pos": random_pos_robot, "orientation":random.uniform(0, math.pi)}
+            
+            return init_pos_robot, init_pos_person
 
         if self.is_evaluation_:
             init_pos_person = self.path["start_person"]
@@ -770,6 +953,10 @@ class GazeborosEnv(gym.Env):
 
         return init_pos_robot, init_pos_person
 
+    def set_marker_pose(self, xy):
+        pose = {"pos": (xy[0], xy[1]), "orientation": 0}
+        self.set_pos("marker",pose)        
+
     def set_pos(self, name, pose):
         set_model_msg = ModelState()
         set_model_msg.model_name = name
@@ -784,6 +971,8 @@ class GazeborosEnv(gym.Env):
 
         if self.use_jackal and "tb3" in name:
             set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.1635
+        elif "marker" in name:
+            set_model_msg.pose.position.z = 1.6
         else:
             set_model_msg.pose.position.z = 2.6 * self.agent_num + 0.099
         set_model_msg.pose.position.x = pose["pos"][0]
@@ -791,8 +980,93 @@ class GazeborosEnv(gym.Env):
         rospy.wait_for_service('/gazebo/set_model_state')
         self.set_model_state_sp(set_model_msg)
 
-    def init_simulator(self):
+    def get_obstacle_init_pos(self, init_pos_robot, init_pos_person):
+        num_obstacles = len(self.obstacle_names)
+        
+        out_of_the_way_pose = {"pos": (15,15), "orientation":0}
 
+        if not self.use_obstacles:
+            return [out_of_the_way_pose for i in range(num_obstacles)]
+        elif self.obstacle_mode == 0:
+            # Place obstacles between robot and person
+
+            # Calculate distance between robots, subtract some buffer room
+            x_range = abs(init_pos_robot["pos"][0] - init_pos_person["pos"][0])
+            y_range = abs(init_pos_robot["pos"][1] - init_pos_person["pos"][1])
+
+            if x_range != 0:
+                x_range -= EnvConfig.OBSTACLE_SIZE
+            if y_range != 0:
+                y_range -= EnvConfig.OBSTACLE_SIZE
+
+            # Check if we have enough space for obstacles between robots
+            x_buffer_space = y_buffer_space = -1
+            num_obs_to_place = num_obstacles + 1
+            while x_buffer_space < 0 and y_buffer_space < 0:
+                num_obs_to_place -= 1
+                x_buffer_space = x_range - (EnvConfig.OBSTACLE_SIZE * num_obs_to_place)
+                y_buffer_space = y_range - ((EnvConfig.OBSTACLE_SIZE * num_obs_to_place))
+            
+            if num_obs_to_place == 0:
+                # No space for obstacles so put them away
+                rospy.logwarn("Not enough space for obstacles between robots.")
+                return [out_of_the_way_pose for i in range(num_obstacles)]
+
+            x_spacing = x_range / num_obs_to_place
+            y_spacing = y_range / num_obs_to_place
+
+            if init_pos_robot["pos"][0] < init_pos_person["pos"][0]:
+                base_x = init_pos_robot["pos"][0]
+            else:
+                base_x = init_pos_person["pos"][0]
+            
+            if init_pos_robot["pos"][1] < init_pos_person["pos"][1]:
+                base_y = init_pos_robot["pos"][1]
+            else:
+                base_y = init_pos_person["pos"][1]
+
+            # Place obstacles on line between robot and person
+            obstacle_positions = []
+            for i in range(num_obs_to_place):
+                base_x += x_spacing
+                base_y += y_spacing
+                obstacle_positions.append({"pos": (base_x, base_y), "orientation":0})
+            obstacle_positions.extend([out_of_the_way_pose for i in range(num_obstacles - num_obs_to_place)])
+
+            return obstacle_positions
+        
+        elif self.obstacle_mode == 1:
+            # Put obstacles randomly within area
+            obstacle_radius = EnvConfig.OBSTACLE_RADIUS_AWAY
+            min_distance_away_from_robot = EnvConfig.OBSTACLE_SIZE
+
+            obstacle_positions = []
+            for obs_idx in range(num_obstacles):
+                random_point = self.find_random_point_in_circle(obstacle_radius, min_distance_away_from_robot, init_pos_robot["pos"])
+                
+                random_point = self.prevent_overlap(init_pos_person["pos"], random_point, min_distance_away_from_robot)
+
+                obstacle_positions.append({"pos": random_point, "orientation":0})
+            return obstacle_positions
+
+    # Prevent point b from overlapping point a
+    def prevent_overlap(self, point_a, point_b, min_distance):
+        x = point_b[0]
+        y = point_b[1]
+
+        if abs(point_b[0] - point_a[0]) < min_distance:
+            x += min_distance
+        if abs(point_b[1] - point_a[1]) < min_distance:
+            y += min_distance
+        
+        return (x, y)
+
+    def set_obstacle_pos(self, init_pos_robot, init_pos_person):
+        obs_positions = self.get_obstacle_init_pos(init_pos_robot, init_pos_person)       
+        for obs_idx in range(len(self.obstacle_names)):
+            self.set_pos(self.obstacle_names[obs_idx], obs_positions[obs_idx])
+        
+    def init_simulator(self):
         self.number_of_steps = 0
         rospy.loginfo("init simulation called")
         self.is_pause = True
@@ -804,9 +1078,16 @@ class GazeborosEnv(gym.Env):
         self.is_max_distance = False
         self.first_call_observation = True
 
+        rospy.loginfo("Waiting for path follower to die")
+        if self.position_thread:
+            self.position_thread.join()        
+        rospy.loginfo("Done waiting")
+
         self.current_obsevation_image_.fill(255)
         if self.use_movebase:
             self.robot.movebase_cancel_goals()
+        if self.person_use_move_base:
+            self.person.movebase_cancel_goals()
         rospy.sleep(0.5)
         self.person.stop_robot()
         self.robot.stop_robot()
@@ -814,18 +1095,29 @@ class GazeborosEnv(gym.Env):
         #     self.prev_action = (0,0, 0)
         # else:
         self.prev_action = (0,0)
+
+        if EnvConfig.TRAIN_HINN:
+            init_pos_robot = {"pos": (30,30), "orientation": 0}
+
+        # Set positions of robots and obstacles
         self.set_pos(self.robot.name, init_pos_robot)
         self.set_pos(self.person.name, init_pos_person)
+
+        if EnvConfig.TRAIN_HINN:
+            self.set_obstacle_pos(init_pos_person, init_pos_robot)
+        else:
+            self.set_obstacle_pos(init_pos_robot, init_pos_person)
 
         self.robot.update(init_pos_robot)
         self.person.update(init_pos_person)
 
         self.path_finished = False
-        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot,))
+        
+        self.position_thread = threading.Thread(target=self.path_follower, args=(self.current_path_idx, self.robot, init_pos_person,))
         self.position_thread.daemon = True
-
         self.is_reseting = False
         self.position_thread.start()
+
         self.wait_observation_ = 0
 
         self.is_reseting = False
@@ -974,100 +1266,161 @@ class GazeborosEnv(gym.Env):
     def set_robot_to_auto(self):
         self.robot_mode = 1
 
-    """
-    the function will check the self.robot_mode:
-        0: will not move robot
-        1: robot will try to go to a point after person
-    """
-    def path_follower(self, idx_start, robot):
+    def respect_orientation(self, xy, orientation):
+        x = math.cos(orientation) * xy[0] - math.sin(orientation) * xy[1]
+        y = math.sin(orientation) * xy[0] + math.cos(orientation) * xy[1]
 
-        counter = 0
-        while self.is_pause:
-            if self.is_reseting:
-                rospy.loginfo( "path follower return as reseting ")
-                return
-            time.sleep(0.001)
-            if counter > 10000:
-                rospy.loginfo( "path follower waiting for pause to be false")
-                counter = 0
-            counter += 1
-        rospy.loginfo( "path follower waiting for lock pause:{} reset:{}".format(self.is_pause, self.is_reseting))
-        if self.lock.acquire(timeout=10):
-            rospy.sleep(1.5)
-            rospy.loginfo("path follower got the lock")
-            if self.is_use_test_setting:
-                mode_person = self.path_follower_test_settings[self.path_follower_current_setting_idx][0]
-            elif self.test_simulation_:
-                mode_person = -1
-            elif self.is_evaluation_:
-                mode_person = 2
-            elif self.use_predifined_mode_person:
-                mode_person = self.mode_person
+        return [x,y]
+
+    def path_follower(self, idx_start, robot, person_init_pose):
+
+        """
+        Move base person mode:
+        1: Attempt left curved path
+        2: Attempt right curved path
+        3: Random
+        4: Zig zag
+        0/default: Attempt straight path
+        """
+        if self.person_use_move_base:
+            print(f"person_mode = {self.person_mode}")
+                           
+            if self.person_mode == 1:
+                interval = 3
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
+                    action = [0.5,i*0.5]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+
+                    target_orientation = person_init_pose["orientation"] + i * math.pi/EnvConfig.EPISODE_LEN/2
+
+                    self.person.take_action(action, target_orientation=target_orientation)
+                    rospy.sleep(interval)
+            elif self.person_mode == 2:
+                interval = 3
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
+                    action = [0.5,-i * 0.5]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+
+                    target_orientation = person_init_pose["orientation"] - i * math.pi/EnvConfig.EPISODE_LEN/2
+
+                    self.person.take_action(action, target_orientation=target_orientation)
+                    rospy.sleep(interval)
+            elif self.person_mode == 3:
+                interval = 5
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
+                    x = random.uniform(-1,1)
+                    y = random.uniform(-1,1)
+
+                    self.person.take_action([x, y])
+                    rospy.sleep(interval)
+            elif self.person_mode == 4:
+                y = 0.5
+                interval = 3
+                for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
+                    action = [1,y]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+
+                    target_orientation = person_init_pose["orientation"] - y * math.pi/4
+
+                    self.person.take_action(action, target_orientation=target_orientation)
+                    y *= -1
+                    rospy.sleep(interval)
             else:
-                mode_person = random.randint(0, 7)
-                #if self.agent_num == 2:
-                #    mode_person = random.randint(1, self.max_mod_person_)
-                #else:
-                #    mode_person = 0
-                # if self.agent_num == 0:
-                #     mode_person = 5
-                # elif self.agent_num == 1:
-                #     mode_person = 2
-                # elif self.agent_num == 2:
-                #     mode_person = 3
-                # elif self.agent_num == 3:
-                #     mode_person = 7
-                # else:
-                #     mode_person = random.randint(1, self.max_mod_person_)
-            # if mode_person == 0:
-            #     person_thread = threading.Thread(target=self.person.go_to_goal, args=())
-            #     person_thread.start()
-            if self.use_goal and not self.use_movebase:
-                self.robot_thread = threading.Thread(target=self.robot.go_to_goal, args=())
-                self.robot_thread.start()
-
-            for idx in range (idx_start, len(self.path["points"])-3):
-                point = (self.path["points"][idx][0], self.path["points"][idx][1])
-                self.current_path_idx = idx
-                counter_pause = 0
-                while self.is_pause:
-                    counter_pause+=1
-                    rospy.loginfo("pause in path follower")
-                    if self.is_reseting or counter_pause > 200:
-                        # if mode_person == 0:
-                        #     person_thread.join()
-                        self.lock.release()
-                        return
-                    time.sleep(0.001)
-                try:
-                    if mode_person <= 6:
-                        self.person.use_selected_person_mod(mode_person)
-                    else:
-                        self.person.go_to_pos(point, stop_after_getting=True)
-                        time.sleep(0.001)
-                    # person_thread.start()
-                    # if self.robot_mode == 1:
-                    #     noisy_point = (self.path["points"][idx+3][0] +min(max(np.random.normal(),-0.5),0.5), self.path["points"][idx+3][1] +min(max(np.random.normal(),-0.5),0.5))
-
-                    #     robot_thread = threading.Thread(target=self.robot.go_to_pos, args=(noisy_point,True,))
-                    #     robot_thread.start()
-                    #     robot_thread.join()
-
-                    # person_thread.join()
-
-                except Exception as e:
-                    rospy.logerr("path follower {}, {}".format(self.is_reseting, e))
-                    traceback.print_exc()
-                    break
-                if self.is_reseting:
-                    self.person.stop_robot()
-                    break
-            self.lock.release()
-            rospy.loginfo("path follower release the lock")
-            self.path_finished = True
+                # 0/Default: Straight path
+                for i in range(EnvConfig.EPISODE_LEN):
+                    action = [2,0]
+                    action = self.respect_orientation(action, person_init_pose["orientation"])
+                    self.person.take_action(action)
+                    rospy.sleep(1)
+                
         else:
-            rospy.loginfo("problem in getting the log in path follower")
-        # robot.stop_robot()
+            counter = 0
+            while self.is_pause:
+                if self.is_reseting:
+                    rospy.loginfo( "path follower return as reseting ")
+                    return
+                time.sleep(0.001)
+                if counter > 10000:
+                    rospy.loginfo( "path follower waiting for pause to be false")
+                    counter = 0
+                counter += 1
+            rospy.loginfo( "path follower waiting for lock pause:{} reset:{}".format(self.is_pause, self.is_reseting))
+            if self.lock.acquire(timeout=10):
+                rospy.sleep(1.5)
+                rospy.loginfo("path follower got the lock")
+                if self.is_use_test_setting:
+                    mode_person = self.path_follower_test_settings[self.path_follower_current_setting_idx][0]
+                elif self.test_simulation_:
+                    mode_person = -1
+                elif self.is_evaluation_:
+                    mode_person = 2
+                elif self.use_predifined_mode_person:
+                    mode_person = self.mode_person
+                else:
+                    mode_person = random.randint(0, 7)
+                    #if self.agent_num == 2:
+                    #    mode_person = random.randint(1, self.max_mod_person_)
+                    #else:
+                    #    mode_person = 0
+                    # if self.agent_num == 0:
+                    #     mode_person = 5
+                    # elif self.agent_num == 1:
+                    #     mode_person = 2
+                    # elif self.agent_num == 2:
+                    #     mode_person = 3
+                    # elif self.agent_num == 3:
+                    #     mode_person = 7
+                    # else:
+                    #     mode_person = random.randint(1, self.max_mod_person_)
+                # if mode_person == 0:
+                #     person_thread = threading.Thread(target=self.person.go_to_goal, args=())
+                #     person_thread.start()
+                if self.use_goal and not self.use_movebase:
+                    self.robot_thread = threading.Thread(target=self.robot.go_to_goal, args=())
+                    self.robot_thread.start()
+
+                for idx in range (idx_start, len(self.path["points"])-3):
+                    point = (self.path["points"][idx][0], self.path["points"][idx][1])
+                    self.current_path_idx = idx
+                    counter_pause = 0
+                    while self.is_pause:
+                        counter_pause+=1
+                        rospy.loginfo("pause in path follower")
+                        if self.is_reseting or counter_pause > 200:
+                            # if mode_person == 0:
+                            #     person_thread.join()
+                            self.lock.release()
+                            return
+                        time.sleep(0.001)
+                    try:
+                        if mode_person <= 6:
+                            self.person.use_selected_person_mod(mode_person)
+                        else:
+                            self.person.go_to_pos(point, stop_after_getting=True)
+                            time.sleep(0.001)
+                        # person_thread.start()
+                        # if self.robot_mode == 1:
+                        #     noisy_point = (self.path["points"][idx+3][0] +min(max(np.random.normal(),-0.5),0.5), self.path["points"][idx+3][1] +min(max(np.random.normal(),-0.5),0.5))
+
+                        #     robot_thread = threading.Thread(target=self.robot.go_to_pos, args=(noisy_point,True,))
+                        #     robot_thread.start()
+                        #     robot_thread.join()
+
+                        # person_thread.join()
+
+                    except Exception as e:
+                        rospy.logerr("path follower {}, {}".format(self.is_reseting, e))
+                        traceback.print_exc()
+                        break
+                    if self.is_reseting:
+                        self.person.stop_robot()
+                        break
+                self.lock.release()
+                rospy.loginfo("path follower release the lock")
+                self.path_finished = True
+            else:
+                rospy.loginfo("problem in getting the log in path follower")
+            # robot.stop_robot()
 
 
     def get_laser_scan(self):
@@ -1127,7 +1480,8 @@ class GazeborosEnv(gym.Env):
             relative = GazeborosEnv.get_relative_position(pos, self.robot.relative)
             pos_rel.append(relative)
         pos_history = np.asarray(np.asarray(pos_rel)).flatten()/6.0
-        #TODO: make the velocity normalization better
+        
+        
         velocities = np.concatenate((person_vel, robot_vel))/self.robot.max_angular_vel
         if self.use_orientation_in_observation:
             velocities_heading = np.append(velocities, heading_relative)
@@ -1135,10 +1489,15 @@ class GazeborosEnv(gym.Env):
             velocities_heading = velocities
         final_ob =  np.append(np.append(pos_history, velocities_heading), self.prev_action)
 
+        if EnvConfig.RETURN_HINN_STATE:
+            final_ob = np.append(np.append(person_vel, heading_person), pos_his_person)
+
+            # if EnvConfig.USE_OBSTACLES:
+            final_ob = np.append(final_ob, self.person_scan)
+
         return final_ob
 
     def __del__(self):
-        # todo
         return
 
     def visualize_observation(self):
@@ -1238,7 +1597,6 @@ class GazeborosEnv(gym.Env):
         pos_person = self.person.get_pos()
         pos_relative = GazeborosEnv.get_relative_position(pos, self.robot.relative)
         pos_person_relative = GazeborosEnv.get_relative_position(pos_person, self.robot.relative)
-        print (f"pos pos_person pos_relative [pos], [pos_person] [pos_relative]")
         pos_norm = GazeborosEnv.normalize(pos_relative, self.robot.max_rel_pos_range)
         orientation = GazeborosEnv.normalize(math.atan2(pos_relative[1] - pos_person_relative[1], pos_relative[0] - pos_person_relative[0]), math.pi)
         return np.asarray((pos_norm[0], pos_norm[1], orientation))
@@ -1277,8 +1635,6 @@ class GazeborosEnv(gym.Env):
         alpha = 0.50
         self.current_obsevation_image_ = cv.addWeighted(self.new_obsevation_image_, alpha, self.current_obsevation_image_, 1 - alpha, 0)
 
-
-
     def get_current_observation_image(self):
 
         image = self.current_obsevation_image_
@@ -1291,13 +1647,15 @@ class GazeborosEnv(gym.Env):
     def take_action(self, action):
         self.prev_action = action[:2]
         self.robot.take_action(action)
-        if self.wait_observation_ <= 0:
-            self.update_observation_image()
-            self.wait_observation_ = 7
-        self.color_index += 2
-        if self.color_index >= len(self.colors_visualization):
-            self.color_index = len(self.colors_visualization) - 1
-        self.wait_observation_ -= 1
+
+        if not self.person_use_move_base:
+            if self.wait_observation_ <= 0:
+                self.update_observation_image()
+                self.wait_observation_ = 7
+            self.color_index += 2
+            if self.color_index >= len(self.colors_visualization):
+                self.color_index = len(self.colors_visualization) - 1
+            self.wait_observation_ -= 1
         return
 
     def is_skip_run(self):
@@ -1317,6 +1675,7 @@ class GazeborosEnv(gym.Env):
         self.take_action(action)
         # instead of one reward get all the reward during wait
         # rospy.sleep(0.4)
+
         sleep_time = 0.10
         rewards = []
         if sleep_time > 0.1:
@@ -1328,33 +1687,38 @@ class GazeborosEnv(gym.Env):
              rospy.sleep(sleep_time)
              reward = self.get_reward()
         ob = self.get_observation()
-        episode_over = False
-        rel_person = GazeborosEnv.get_relative_heading_position(self.robot, self.person)[1]
 
-        distance = math.hypot(rel_person[0], rel_person[1])
-        if self.path_finished:
-            rospy.loginfo("path finished")
-            episode_over = True
-        if self.is_collided():
-            self.update_observation_image()
-            episode_over = True
-            rospy.loginfo('collision happened episode over')
-            reward -= 0.5
-        elif distance > 5:
-            self.update_observation_image()
-            self.is_max_distance = True
-            episode_over = True
-            rospy.loginfo('max distance happened episode over')
-        elif self.number_of_steps > self.max_numb_steps:
-            self.update_observation_image()
-            episode_over = True
-        if self.fallen:
-            episode_over = True
-            rospy.loginfo('fallen')
+        episode_over = False
+
+        if not EnvConfig.RETURN_HINN_STATE:
+            rel_person = GazeborosEnv.get_relative_heading_position(self.robot, self.person)[1]
+
+            distance = math.hypot(rel_person[0], rel_person[1])
+            if self.path_finished:
+                rospy.loginfo("path finished")
+                episode_over = True
+            if self.is_collided():
+                self.update_observation_image()
+                episode_over = True
+                rospy.loginfo('collision happened episode over')
+                reward -= 0.5 # maybe remove less when in start of leaning 
+            elif distance > 5:
+                self.update_observation_image()
+                self.is_max_distance = True
+                episode_over = True
+                rospy.loginfo('max distance happened episode over')
+            elif self.number_of_steps > self.max_numb_steps:
+                self.update_observation_image()
+                episode_over = True
+            if self.fallen:
+                episode_over = True
+                rospy.loginfo('fallen')
         reward = min(max(reward, -1), 1)
+        
         if self.agent_num == 0:
             rospy.loginfo("action {} reward {}".format(action, reward))
-        if episode_over:
+        
+        if episode_over and not EnvConfig.RETURN_HINN_STATE:
             self.person.reset = True
         #reward += 1
         return ob, reward, episode_over, {}
@@ -1408,15 +1772,11 @@ class GazeborosEnv(gym.Env):
         # else:
         #     reward -= distance / 7.0
         reward = min(max(reward, -1), 1)
-        # ToDO check for obstacle
         return reward
 
     def save_log(self):
         pickle.dump({"person_history":self.person.log_history, "robot_history":self.robot.log_history}, self.log_file)
         self.log_file.close()
-
-
-
 
     def reset(self, reset_gazebo=False):
 
@@ -1439,12 +1799,12 @@ class GazeborosEnv(gym.Env):
                         self.log_file.close()
 
                     self.path_idx += 1
-                    print ("start path_id: {}".format(self.path_idx))
+                    print("start path_id: {}".format(self.path_idx))
                     if self.path_idx < len(self.paths)-1:
                         self.path = self.paths[self.path_idx]
                         self.log_file = open(self.path["name"], "wb")
                     else:
-                        print ("all done")
+                        print("all done")
                         self.person.stop_robot()
                         exit(0)
                 self.init_simulator()
@@ -1521,7 +1881,7 @@ class GazeborosEnv(gym.Env):
     def reachability_action(self):
         relative = GazeborosEnv.get_relative_position(self.robot.get_pos(), self.person)
         orientation = GazeborosEnv.wrap_pi_to_pi(self.robot.get_orientation() - self.person.get_orientation())
-        print (np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
+        print(np.rad2deg(orientation), np.rad2deg(self.person.get_orientation()), np.rad2deg(self.robot.get_orientation()) )
         velocity = self.robot.get_velocity()[0]
         derivative_v, derivative_theta, v = self.calculate_rechability_derivite(relative[0], relative[1], velocity, orientation)
         rospy.loginfo("d_v: {:0.5f} W: {:0.5f} v {:0.1f}".format(derivative_v, derivative_theta, v))

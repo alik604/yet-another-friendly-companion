@@ -20,5 +20,22 @@ find_package(catkin REQUIRED COMPONENTS rospy)
 # generate_messages()
 
 catkin_package(
+#  INCLUDE_DIRS include
+#  LIBRARIES python_ekf
+#  CATKIN_DEPENDS rospy
+#  DEPENDS system_lib
+)
+
+include_directories(
+# include
+  ${catkin_INCLUDE_DIRS}
+)
+
+catkin_install_python(PROGRAMS
+  old_script/tf_node.py
+  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+)
+
+catkin_package(
   CATKIN_DEPENDS
 )
