@@ -193,8 +193,8 @@ class RolloutGenerator(object):
         # Loading world model and vae
         # references: https://github.com/ctallec/world-models/blob/master/utils/misc.py
         ctrl_file = join(mdir, "ctrl", "best.tar")
-        obs_dim = 8
-        act_dim = 4
+        obs_dim = 8 #TODO these need to be fixed for our environment
+        act_dim = 4 #TODO these need to be fixed for out environment
         self.model = rnn
         # TODO this is the right place to load the rnn weights
         # self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
