@@ -35,6 +35,8 @@ import matplotlib.pyplot as plt
 # import torch.nn.functional as F
 # from torch.autograd import Variable
 from torch.multiprocessing import Process, Queue
+import gym_gazeboros_ac
+
 
 
 device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -50,8 +52,8 @@ torch.manual_seed(RANDOMSEED)
 # ByteTensor = torch.cuda.ByteTensor if use_cuda else torch.ByteTensor
 
 ###############################  hyper parameters  #########################
-# ENV_NAME = # 'gazeborosAC-v0'  # environment name
-ENV_NAME = "LunarLander-v2"
+ENV_NAME = 'gazeborosAC-v0'  # environment name
+#ENV_NAME = "LunarLander-v2"
 batch_size = 1 # 128 # TODO fix https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
 # GAMMA = 0.999
 # EPS_START = 0.9
@@ -380,11 +382,12 @@ if not exists(rnn_dir):
 if __name__ == "__main__":
 
     env = gym.make(ENV_NAME)
-    env.seed(RANDOMSEED)
+    #env.seed(RANDOMSEED)
+    env.set_agent(0)
     
-    obs_dim = env.observation_space.shape[0]  # this is for the lunar lander environment
-    # act_dim = env.action_space.shape[0]
-    act_dim = env.action_space.n
+    obs_dim = env.observation_space.shape[0]  # this is for our environment
+    action_dim = env.action_space.shape[0]
+    #act_dim = env.action_space.n
 
     print("obs_dim + act_dim", obs_dim + act_dim)
     model = RNN(obs_dim, act_dim)
@@ -417,6 +420,7 @@ if __name__ == "__main__":
     for i_episode in range(num_episodes): 
         # Initialize the environment and state
         state = env.reset()
+        #state = torch.Tensor([state]) #this might have to changed depending on how the state is structured
         state = torch.from_numpy(np.array([state]))
         hid = ( torch.zeros(batch_size, model.hidden).to(device),
                 torch.zeros(batch_size, model.hidden).to(device))
@@ -437,10 +441,10 @@ if __name__ == "__main__":
             mu, sigma, hid = model.forward(state, pred, hid)
 
 
-            state, _, _, _ = env.step(action)
+            state, _, _, _ = env.step(action) #not sure what the data structure is 
             # print(f'state before {state}')
             # print(f'state mid    {np.array([state)}')
-            state = torch.from_numpy(np.array([state])) # TODO make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
+            state = torch.from_numpy(np.array([state])) # TODO #this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
 
             #print("this si the next state", state)
             dist = distributions.Normal(loc=mu, scale=sigma)
