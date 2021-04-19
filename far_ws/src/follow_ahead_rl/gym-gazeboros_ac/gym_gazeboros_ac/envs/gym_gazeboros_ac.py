@@ -80,7 +80,7 @@ class EnvConfig:
     EPISODE_LEN = 15
 
     # Returns Human State only in get_observations if True
-    RETURN_HINN_STATE = True
+    RETURN_HINN_STATE = False
 
     # Size to reduce laser scan to
     SCAN_REDUCTION_SIZE = 20
@@ -90,6 +90,9 @@ class EnvConfig:
 
     # If True, moves jackal bot out of the way and puts obstacles around person
     TRAIN_HINN = False
+
+    # For NON-HINN OUTPUT ONLY: Outputs laser scan if true
+    OUTPUT_OBSTACLES_IN_STATE = True
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -584,6 +587,9 @@ class GazeborosEnv(gym.Env):
 
         if self.small_window_size:
             observation_dimensions -= 20
+        
+        if EnvConfig.OUTPUT_OBSTACLES_IN_STATE:
+            observation_dimensions += EnvConfig.SCAN_REDUCTION_SIZE
 
         if EnvConfig.RETURN_HINN_STATE:
             observation_dimensions = 23
@@ -1494,6 +1500,9 @@ class GazeborosEnv(gym.Env):
 
             # if EnvConfig.USE_OBSTACLES:
             final_ob = np.append(final_ob, self.person_scan)
+        else:
+            if EnvConfig.OUTPUT_OBSTACLES_IN_STATE:
+                final_ob = np.append(final_ob, self.person_scan)
 
         return final_ob
 
