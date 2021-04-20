@@ -56,8 +56,8 @@ class EnvConfig:
     # Boolean to make robots spawn at constant locations
     USE_TESTING = False
 
-    # Set to move obstacles out of the way in case they exist but you don't want them in the way
-    USE_OBSTACLES = False
+    # If False, Moves obstacles out of the way
+    USE_OBSTACLES = True
 
     # Pattern to init obstacles
     # 0: Places obstacles between robot and person
@@ -80,7 +80,7 @@ class EnvConfig:
     EPISODE_LEN = 15
 
     # Returns Human State only in get_observations if True
-    RETURN_HINN_STATE = False
+    RETURN_HINN_STATE = True
 
     # Size to reduce laser scan to
     SCAN_REDUCTION_SIZE = 20
@@ -93,6 +93,9 @@ class EnvConfig:
 
     # For NON-HINN OUTPUT ONLY: Outputs laser scan if true
     OUTPUT_OBSTACLES_IN_STATE = True
+
+    # Evaluation Mode, Removes stochasticity when initializing environment
+    EVALUATION_MODE = True
 
 class History():
     def __init__(self, window_size, update_rate, save_rate=10):
@@ -554,6 +557,13 @@ class GazeborosEnv(gym.Env):
         self.person_mode = 0
         self.position_thread = None
 
+        self.eval_x = -4
+        self.eval_y = -4
+        self.eval_orientation = 0
+
+        self.robot_eval_x = -1
+        self.robot_eval_y = -1
+
         self.path_follower_current_setting_idx = 0
         self.use_supervise_action = False
         self.mode_person = 0
@@ -899,14 +909,40 @@ class GazeborosEnv(gym.Env):
             self.path["points"].reverse()
 
         if self.person_use_move_base:
-            x = random.uniform(-3,3)
-            y = random.uniform(-3,3)
-            init_pos_person = {"pos": (x, y), "orientation":random.uniform(0, math.pi)}
-            random_pos_robot = self.find_random_point_in_circle(1.5, 2.5, init_pos_person["pos"])
+            if EnvConfig.EVALUATION_MODE:
+                if self.eval_x > 4:
+                    self.eval_x = -4
+                    self.eval_y = -4
+                    self.eval_orientation = 0
+                
+                    self.robot_eval_x = -1
+                    self.robot_eval_y = -1
+                
+                if self.robot_eval_x > 1:
+                    self.robot_eval_x = -1
+                    self.robot_eval_y = 1
+                
+                init_pos_person = {"pos": (self.eval_x, self.eval_y), "orientation":self.eval_orientation}
+                
+                init_pos_robot = {"pos": (self.robot_eval_x, self.robot_eval_y), "orientation":self.eval_orientation}
 
-            init_pos_robot = {"pos": random_pos_robot, "orientation":random.uniform(0, math.pi)}
-            
-            return init_pos_robot, init_pos_person
+                self.eval_x += 1
+                self.eval_y += 1
+                self.eval_orientation += math.pi/4
+
+                self.robot_eval_x += 2
+                self.robot_eval_y += 2
+
+                return init_pos_robot, init_pos_person
+            else:
+                x = random.uniform(-3,3)
+                y = random.uniform(-3,3)
+                init_pos_person = {"pos": (x, y), "orientation":random.uniform(0, math.pi)}
+                random_pos_robot = self.find_random_point_in_circle(1.5, 2.5, init_pos_person["pos"])
+
+                init_pos_robot = {"pos": random_pos_robot, "orientation":random.uniform(0, math.pi)}
+                
+                return init_pos_robot, init_pos_person
 
         if self.is_evaluation_:
             init_pos_person = self.path["start_person"]
@@ -1044,15 +1080,37 @@ class GazeborosEnv(gym.Env):
         elif self.obstacle_mode == 1:
             # Put obstacles randomly within area
             obstacle_radius = EnvConfig.OBSTACLE_RADIUS_AWAY
-            min_distance_away_from_robot = EnvConfig.OBSTACLE_SIZE
+            min_distance_away_from_robot = EnvConfig.OBSTACLE_SIZE * 1.25
 
             obstacle_positions = []
-            for obs_idx in range(num_obstacles):
-                random_point = self.find_random_point_in_circle(obstacle_radius, min_distance_away_from_robot, init_pos_robot["pos"])
-                
-                random_point = self.prevent_overlap(init_pos_person["pos"], random_point, min_distance_away_from_robot)
+            if EnvConfig.EVALUATION_MODE:
+                x_diff = -1
+                y_diff = -1
+                count = 0
+                for obs_idx in range(num_obstacles):
+                    p_xy = init_pos_person["pos"]
 
-                obstacle_positions.append({"pos": random_point, "orientation":0})
+                    point = (p_xy[0] + x_diff, p_xy[1] + y_diff)
+                    point = self.prevent_overlap(init_pos_person["pos"], point, min_distance_away_from_robot)
+                    point = self.prevent_overlap(init_pos_robot["pos"], point, min_distance_away_from_robot)
+
+                    obstacle_positions.append({"pos": point, "orientation":0})
+                    
+                    if count % 2 == 0:
+                        x_diff += 1
+                    else:
+                        y_diff += 1
+                        x_diff -= 0.5
+
+                    count += 1
+                    
+            else:
+                for obs_idx in range(num_obstacles):
+                    random_point = self.find_random_point_in_circle(obstacle_radius, min_distance_away_from_robot, init_pos_robot["pos"])
+                    
+                    random_point = self.prevent_overlap(init_pos_person["pos"], random_point, min_distance_away_from_robot)
+
+                    obstacle_positions.append({"pos": random_point, "orientation":0})
             return obstacle_positions
 
     # Prevent point b from overlapping point a

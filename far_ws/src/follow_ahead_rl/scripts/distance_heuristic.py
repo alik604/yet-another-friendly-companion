@@ -2,6 +2,7 @@
 import math
 import gym
 import time
+import matplotlib.pyplot as plt
 
 import gym_gazeboros_ac
 
@@ -9,7 +10,7 @@ import gym_gazeboros_ac
 ENV_NAME = 'gazeborosAC-v0'
 NUM_EPISODES = 100
 EPISODE_LEN = 15
-
+EVALUATE_PIPELINE = True
 
 class DistanceHeuristic:
     # Args:
@@ -25,8 +26,7 @@ class DistanceHeuristic:
 
     # Args:
     # target_predicted_state: [x,y,theta]
-    # obstacle_states: [(xy and size)]
-    def calculate_goal(self, target_predicted_state, vector):
+    def calculate_goal(self, target_predicted_state):
         vector = [self.target_distance*4, 0]
         vector = self.rotate_vector(vector, target_predicted_state[2])
 
@@ -35,12 +35,8 @@ class DistanceHeuristic:
 
     # Args:
     # target_predicted_state: [x,y,theta]
-    # obstacle_states: [(xy and size)]
-    def calculate_vector(self, target_predicted_state, obstacle_states):
+    def calculate_vector(self, target_predicted_state):
         vector = [self.target_distance, 0]
-        # vector = self.rotate_vector(vector, target_predicted_state[2])
-
-        # TODO: Deal with obstacles
 
         return vector
 
@@ -52,8 +48,13 @@ if __name__ == '__main__':
     
     dis_heuristic = DistanceHeuristic()
 
+    cumulative_reward_per_episode = []
+    cumulative_reward = 0
     mode = 0
     for i in range(NUM_EPISODES):
+        if EVALUATE_PIPELINE:
+            if (mode % 5) == 3:     # Don't use random person path
+                mode += 1
         env.set_person_mode(mode % 5)
         mode += 1
         state = env.reset()
@@ -62,13 +63,25 @@ if __name__ == '__main__':
         for i in range(EPISODE_LEN * 5):
             person_state = env.get_person_pos()
 
-            action = dis_heuristic.calculate_vector(person_state, [])
-            goal = dis_heuristic.calculate_goal(person_state, action)
+            action = dis_heuristic.calculate_vector(person_state)
             
+            goal = dis_heuristic.calculate_goal(person_state)            
             env.set_marker_pose(goal)
+
             state, reward, done, _ = env.step(action)
-
+            cumulative_reward += reward
             time.sleep(0.1)
+            
+        cumulative_reward_per_episode.append(cumulative_reward)
+    
+    print(f"Cumulative reward: {cumulative_reward_per_episode}")
+    
+    plt.plot(cumulative_reward_per_episode)
+    plt.xlabel('Episode')
+    plt.ylabel('Cumulative Reward')
+    plt.title('Distance Heuristic Evaluation Cumulative Reward')
 
+    plt.savefig('DH_EVAL_CR.png')
+    plt.show()
     
     print("END")
