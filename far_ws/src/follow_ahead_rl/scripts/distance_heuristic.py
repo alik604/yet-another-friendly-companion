@@ -57,6 +57,7 @@ if __name__ == '__main__':
                 mode += 1
         env.set_person_mode(mode % 5)
         print(f"Running Episode {i} Person Mode = {mode % 5}")
+        start = time.time()
         mode += 1
         state = env.reset()
 
@@ -74,6 +75,7 @@ if __name__ == '__main__':
             time.sleep(0.1)
             
         cumulative_reward_per_episode.append(cumulative_reward)
+        print(f"Episode Time Taken: {time.time() - start}")
     
     print(f"Cumulative reward: {cumulative_reward_per_episode}")
     
