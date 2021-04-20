@@ -1088,9 +1088,9 @@ class GazeborosEnv(gym.Env):
                 y_diff = -1
                 count = 0
                 for obs_idx in range(num_obstacles):
-                    p_xy = init_pos_person["pos"]
+                    p_xy = init_pos_robot["pos"]
 
-                    point = (p_xy[0] + x_diff, p_xy[1] + y_diff)
+                    point = (p_xy[0] + x_diff*1.25, p_xy[1] + y_diff*1.25)
                     point = self.prevent_overlap(init_pos_person["pos"], point, min_distance_away_from_robot)
                     point = self.prevent_overlap(init_pos_robot["pos"], point, min_distance_away_from_robot)
 
