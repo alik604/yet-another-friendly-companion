@@ -56,6 +56,7 @@ if __name__ == '__main__':
             if (mode % 5) == 3:     # Don't use random person path
                 mode += 1
         env.set_person_mode(mode % 5)
+        print(f"Running Episode {i} Person Mode = {mode % 5}")
         mode += 1
         state = env.reset()
 

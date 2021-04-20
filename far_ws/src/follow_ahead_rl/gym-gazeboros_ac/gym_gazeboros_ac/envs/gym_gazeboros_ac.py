@@ -1346,9 +1346,7 @@ class GazeborosEnv(gym.Env):
         4: Zig zag
         0/default: Attempt straight path
         """
-        if self.person_use_move_base:
-            print(f"person_mode = {self.person_mode}")
-                           
+        if self.person_use_move_base:                           
             if self.person_mode == 1:
                 interval = 3
                 for i in range(math.floor(EnvConfig.EPISODE_LEN/interval)):
@@ -1782,8 +1780,8 @@ class GazeborosEnv(gym.Env):
                 rospy.loginfo('fallen')
         reward = min(max(reward, -1), 1)
         
-        if self.agent_num == 0:
-            rospy.loginfo("action {} reward {}".format(action, reward))
+        # if self.agent_num == 0:
+        #     rospy.loginfo("action {} reward {}".format(action, reward))
         
         if episode_over and not EnvConfig.RETURN_HINN_STATE:
             self.person.reset = True
