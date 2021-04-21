@@ -20,15 +20,7 @@
 
   <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch"/>
 
-  <include file="$(find follow_ahead_rl)/launch/navigation.launch"/>
-
-  <include file="$(find follow_ahead_rl)/launch/navigation.launch">
-    <arg name="robot_name" value="person"/>
-    <arg name="cmd_topic_name"  value="/person_0/cmd_vel"/>
-    <arg name="params_file" value="person_teb_local_planner_params.yaml"/>
-  </include>
-
-  <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/>
+  <!-- <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/> -->
 
   <node name="spawn_marker" pkg="gazebo_ros" type="spawn_model" ns="marker"
     args="-x 0 -y 0 -z 2.7 -R 0 -P 0 -Y 0 -urdf -file $(arg marker) -model marker"

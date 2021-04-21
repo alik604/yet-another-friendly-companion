@@ -1,0 +1,9 @@
+<launch>
+  <include file="$(find follow_ahead_rl)/launch/navigation.launch"/>
+
+  <include file="$(find follow_ahead_rl)/launch/navigation.launch">
+    <arg name="robot_name" value="person"/>
+    <arg name="cmd_topic_name"  value="/person_0/cmd_vel"/>
+    <arg name="params_file" value="person_teb_local_planner_params.yaml"/>
+  </include>
+</launch>
