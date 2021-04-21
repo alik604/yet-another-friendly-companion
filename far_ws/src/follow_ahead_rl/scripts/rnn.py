@@ -400,7 +400,7 @@ if __name__ == "__main__":
         model.load_state_dict(pt.load(rnn_filename))
         print(f"LSTM weights loaded")
     except Exception as e:
-        print(f"Error is loading weights, file might not be found or model may have changed\n{e}\n\n")
+        print(f"Error in loading weights, file might not be found or model may have changed\n{e}\n\n")
         
     model.zero_grad()
     model.to(device)
@@ -425,16 +425,16 @@ if __name__ == "__main__":
         # Initialize the environment and state
         state = env.reset()
         #state = torch.Tensor([state]) #this might have to changed depending on how the state is structured
-        state = torch.from_numpy(np.array([state]))
-        hid = ( torch.zeros(batch_size, model.hidden).to(device),
-                torch.zeros(batch_size, model.hidden).to(device))
+        state = torch.from_numpy(np.array([state], dtype=np.float32))
+        hid = (torch.zeros(batch_size, model.hidden, dtype=pt.float), # .to(device)
+               torch.zeros(batch_size, model.hidden, dtype=pt.float))
         #ls = [] # TODO maybe this should be in the loop with `loss = 0.0` since len(ls) is use for a norm (for the loss)  -> i dont think we need this atm
         ls.append(state)
         epoch_count.append(i_episode)
         loss = 0.0
         now = time()
         for i in range(0, episode_length):
-            state = state.to(device=device)
+            state = state #.to(device=device)
             
             #ls.append(state)
 
@@ -466,12 +466,7 @@ if __name__ == "__main__":
         print(f'val  is {val}') # TODO back prop here... but loss is decreasing.. how? what? 
         loss.backward()
         optimizer.step()
-        # _____loss = -(actions_prob.log_prob(actions) * adv_n).sum()
-        # optimizer.zero_grad()
-        # loss.backward()
-        # optimizer.step()
-        # val = loss.item()
-        # print(f'val2 is {val}') # TODO back prop here
+        optimizer.zero_grad()
 
         # state = torch.tensor(state)
         # print(f'state after {state}')
@@ -530,7 +525,7 @@ if __name__ == "__main__":
     #     controller.load_state_dict(pt.load(saved_data["state_dict"]))
     #     print(f"controller weights loaded")
     # except Exception as e:
-    #     print(f"Error is loading controller weights, file might not be found or model may have changed\n{e}\n\n")
+    #     print(f"Error in loading controller weights, file might not be found or model may have changed\n{e}\n\n")
 
     print("#################### CONTROLLER SETUP ##########################")
     parameters = controller.parameters()
