@@ -1,16 +1,10 @@
 '''
-Hey Emma, we arn't using these. im not sure why not
-    optimizer = optim.RMSprop(model.parameters())
-    criterion = torch.nn.MSELoss()
-I do not know if we are optimizing the model
-    
-I left comments with TODO. to make them easy to spot.
-
-
-
-for Ali TODO
-get CUDA working. get with queue
+TODO
+get CUDA working... issues with queue
 get batch_size working
+
+does done, 
+state, _, _, done = env.step(action)
 '''
 
 # rnn.py ali's changes
@@ -66,8 +60,10 @@ latent_space = 64 # hidden of the LSTM & of the controller
 
 pop_size = 2 #4
 n_samples = 2 #4
-num_workers = 32
-num_workers = min(num_workers, n_samples * pop_size) # not sure if any benefit from more than 3 workers 
+
+# num_workers if you change from 1, then you'll have to fix env.set_agent which is hardcoded :) 
+num_workers = 1 # 32 # not sure if any benefit from more than 3 workers 
+num_workers = min(num_workers, n_samples * pop_size) 
 
 
 parser = argparse.ArgumentParser()
@@ -80,22 +76,22 @@ print(f"args.logdir {args.logdir}")
 print("First") # this gets called from every process, but not if its in main()... 
 ############################################################################
 
-# unlessed
-def gmm_loss(batch, mus, sigmas, logpi, reduce: bool = True):
-    batch = batch.unsqueeze(-2)
-    normal_dist = distributions.Normal(mus, sigmas)
-    g_log_probs = distributions.normal_dist.log_prob(batch)
-    g_log_probs = logpi + torch.sum(g_log_probs, dim=-1)
-    max_log_probs = torch.max(g_log_probs, dim=-1, keepdim=True)[0]
-    g_log_probs = g_log_probs - max_log_probs
+# unused..
+# def gmm_loss(batch, mus, sigmas, logpi, reduce: bool = True):
+#     batch = batch.unsqueeze(-2)
+#     normal_dist = distributions.Normal(mus, sigmas)
+#     g_log_probs = distributions.normal_dist.log_prob(batch)
+#     g_log_probs = logpi + torch.sum(g_log_probs, dim=-1)
+#     max_log_probs = torch.max(g_log_probs, dim=-1, keepdim=True)[0]
+#     g_log_probs = g_log_probs - max_log_probs
 
-    g_probs = torch.exp(g_log_probs)
-    probs = torch.sum(g_probs, dim=-1)
+#     g_probs = torch.exp(g_log_probs)
+#     probs = torch.sum(g_probs, dim=-1)
 
-    log_prob = max_log_probs.squeeze() + torch.log(probs)
-    if reduce:
-        return -torch.mean(log_prob)
-    return -log_prob
+#     log_prob = max_log_probs.squeeze() + torch.log(probs)
+#     if reduce:
+#         return -torch.mean(log_prob)
+#     return -log_prob
 
 
 class RNN(nn.Module):
@@ -129,7 +125,7 @@ class RNN(nn.Module):
         # print(obs.size()) (1, 8)
         # print(h.size()) # (batch_size, 64)
         state = torch.cat([obs, h], dim=-1)
-        return self.fc(state)
+        return torch.tanh(self.fc(state))
 
 
 class Controller(nn.Module):
@@ -193,8 +189,8 @@ class RolloutGenerator(object):
         # Loading world model and vae
         # references: https://github.com/ctallec/world-models/blob/master/utils/misc.py
         ctrl_file = join(mdir, "ctrl", "best.tar")
-        obs_dim = 8 #TODO these need to be fixed for our environment
-        act_dim = 4 #TODO these need to be fixed for out environment
+        obs_dim = 50 #8 #TODO these need to be fixed for our environment
+        act_dim = 2   #2 #TODO these need to be fixed for out environment
         self.model = rnn
         # TODO this is the right place to load the rnn weights
         # self.model.load_state_dict({k.strip('_l0'): v for k, v in rnn_state['state_dict'].items()})
@@ -209,6 +205,8 @@ class RolloutGenerator(object):
             print("\n\nController weights not found!\n\n")
 
         self.env = gym.make(ENV_NAME)
+        print(f'\n\n\nMade ENV in `RolloutGenerator`. Set agent to #1, hardcoded...\n\n\n')
+        self.env.set_agent(1)
         self.device = device
 
         self.time_limit = time_limit
@@ -236,7 +234,7 @@ class RolloutGenerator(object):
         act_data = np.zeros((seq_len, act_dim))
 
         obs = self.env.reset()
-        hid = (torch.zeros(1, 64), torch.zeros(1, 64))  # h  # c
+        hid = (torch.zeros(1, latent_space), torch.zeros(1, latent_space))  # h  # c $ TODO 64 changed to latent_space, which is 64 
 
         obs = torch.from_numpy(obs).unsqueeze(0)
         act = self.controller.forward(obs, hid[0])
@@ -252,6 +250,7 @@ class RolloutGenerator(object):
         return act, obs
 
     def rollout(self, params, render=False):
+        print(f'we are in `rollout`')
         """Execute a rollout and returns minus cumulative reward.
         Load :params: into the controller and execute a single rollout. This
         is the main API of this class.
@@ -264,12 +263,13 @@ class RolloutGenerator(object):
 
         obs = self.env.reset()
 
-        hidden = [torch.zeros(1, 64).to(self.device) for _ in range(2)] # 1 should be batch_size
+        hidden = [torch.zeros(1, latent_space).to(self.device) for _ in range(2)] # 1 should be batch_size. TODO 64 changed to latent_space
 
         cumulative = 0
         i = 0
         while True:
             action, hidden = self.get_action_and_transition(hidden)
+            print(action)
             obs, reward, done, _ = self.env.step(action)
 
             if render or i == 0:  # This first render is required! # TODO is it? 
@@ -315,11 +315,12 @@ def slave_routine(p_queue, r_queue, e_queue, p_index, model):
     # sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
     # print(p_queue)
     with torch.no_grad():
+        print("i like cupcakse")
         r_gen = RolloutGenerator(args.logdir, model, device, time_limit)
-
+        print("i like cupcakseeven more ")
         while e_queue.empty():
             if p_queue.empty():
-                # print("we are in if statement")
+                print("we are in if statement")
                 sleep(0.1)
             else:
                 # print("we are in else statement")
@@ -344,6 +345,7 @@ def unflatten_parameters(params, example, device):
     params = torch.Tensor(params).to(device)
     idx = 0
     unflattened = []
+    print(f'params.size is {params.size()}\n\n')
     for e_p in example:
         unflattened += [params[idx : idx + e_p.numel()].view(e_p.size())]
         idx += e_p.numel()
@@ -413,8 +415,8 @@ if __name__ == "__main__":
     
     losses = []
     ls = []
-    num_episodes = 20 #ANTHONY SAID THIS SHOULD BE 100
-    episode_length = 500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
+    num_episodes = 1 #ANTHONY SAID THIS SHOULD BE 100
+    episode_length = 45 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
@@ -442,16 +444,19 @@ if __name__ == "__main__":
             pred = model.step(state, hid[0])
             #TODO: action goal is a x, y vector that is translative to the robot
             #Important to acknowledge: Obstacle Avoidance -> if for some reason this doesnt work -> we might want our thing to output a linear and angular velocity. -> we will have to transition that to the robot-robot using the TEB
-            # action = softmax(pred)  # TODO my suggestion was worng. technically we should not bother with this softmax is a montonicly increase function; it is pointless for the purpose of applying argmax. -Ali
-            action = torch.argmax(pred)
-            action = action.cpu().numpy()
+            action = pred.detach().clamp(min=-1, max=1).numpy().flatten()  # ensure bounds
+            print(f'action = {action}')
             mu, sigma, hid = model.forward(state, pred, hid)
 
             #sleep(0.1) #TODO ANTHONY SAID TO INSERT SLEEP 
-            state, _, _, _ = env.step(action) #not sure what the data structure is  #TODO need to to put variable instead of underscore!!! 
+            state, _, done,_  = env.step(action) #not sure what the data structure is  #TODO need to to put variable instead of underscore!!! 
+
+
             # print(f'state before {state}')
             # print(f'state mid    {np.array([state)}')
-            state = torch.from_numpy(np.array([state])) # TODO #this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
+            # TODO #this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
+            state = torch.from_numpy(np.array([state], dtype=np.float32)) 
+
 
             #print("this si the next state", state)
             dist = distributions.Normal(loc=mu, scale=sigma)
@@ -459,6 +464,9 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
             nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
+            # print(done)
+            # if done:
+            #     break
 
         print(f"time taken = {time() - now}")
         loss = loss/episode_length  # mean over trajectory # why take the norm of an avg?  -> made it episode length instead of i
@@ -517,6 +525,7 @@ if __name__ == "__main__":
 
 
     print("#################### LET US SETUP #################################")
+    print(f'obs_dim, act_dim = {obs_dim} |  {act_dim}')
     controller = Controller(obs_dim, act_dim) # dummy instance
     # TODO added by Ali. not sure why Author didn't have this here.... oh its a dummy instance -_- 
     # try:
@@ -550,7 +559,7 @@ if __name__ == "__main__":
                 p_queue.put((s_id, s))
 
         # print("we just put something in p_queue")
-
+        
         # retrieve results
         if args.display:
             pbar = tqdm(total=pop_size * n_samples)
@@ -559,7 +568,9 @@ if __name__ == "__main__":
         for _ in range(pop_size * n_samples):
             # print("We are in this for loop?")
             while r_queue.empty():
+                print(f'foobar')
                 sleep(0.1)
+            print(f'not foobar')
             r_s_id, r = r_queue.get()
             r_list[r_s_id] += r / n_samples
 
