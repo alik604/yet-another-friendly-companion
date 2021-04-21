@@ -3,8 +3,7 @@ TODO
 get CUDA working... issues with queue
 get batch_size working
 
-does done, 
-state, _, _, done = env.step(action)
+human not moving while training rnn
 '''
 
 # rnn.py ali's changes
@@ -204,9 +203,9 @@ class RolloutGenerator(object):
         else:
             print("\n\nController weights not found!\n\n")
 
-        self.env = gym.make(ENV_NAME)
+        self.env = env #gym.make(ENV_NAME)
         print(f'\n\n\nMade ENV in `RolloutGenerator`. Set agent to #1, hardcoded...\n\n\n')
-        self.env.set_agent(1)
+        # self.env.set_agent(1)
         self.device = device
 
         self.time_limit = time_limit
@@ -222,9 +221,7 @@ class RolloutGenerator(object):
             - action: 1D np array
             - next_hidden (1 x 256) torch tensor
         """
-        obs_dim = self.env.observation_space.shape[
-            0
-        ]  # this is for the lunar lander environment
+        obs_dim = self.env.observation_space.shape[0]  # this is for the lunar lander environment
         # act_dim = env.action_space.shape[0]
         act_dim = self.env.action_space.n
         # print(obs_dim)
@@ -250,7 +247,6 @@ class RolloutGenerator(object):
         return act, obs
 
     def rollout(self, params, render=False):
-        print(f'we are in `rollout`')
         """Execute a rollout and returns minus cumulative reward.
         Load :params: into the controller and execute a single rollout. This
         is the main API of this class.
@@ -260,13 +256,15 @@ class RolloutGenerator(object):
         # copy params into the controller
         if params is not None:
             load_parameters(params, self.controller)
-
-        obs = self.env.reset()
-
+        print(f'we are in `rollout`', env)
+        obs = env.reset() # was self.
+        print(obs)
         hidden = [torch.zeros(1, latent_space).to(self.device) for _ in range(2)] # 1 should be batch_size. TODO 64 changed to latent_space
 
         cumulative = 0
         i = 0
+        
+
         while True:
             action, hidden = self.get_action_and_transition(hidden)
             print(action)
@@ -315,15 +313,13 @@ def slave_routine(p_queue, r_queue, e_queue, p_index, model):
     # sys.stderr = open(join(tmp_dir, str(getpid()) + '.err'), 'a')
     # print(p_queue)
     with torch.no_grad():
-        print("i like cupcakse")
         r_gen = RolloutGenerator(args.logdir, model, device, time_limit)
-        print("i like cupcakseeven more ")
         while e_queue.empty():
             if p_queue.empty():
-                print("we are in if statement")
+                # print("we are in if statement")
                 sleep(0.1)
             else:
-                # print("we are in else statement")
+                print("we are in else statement")
                 s_id, params = p_queue.get()
                 # print("we are putting stuff in r_queue")
                 r_queue.put((s_id, r_gen.rollout(params)))
