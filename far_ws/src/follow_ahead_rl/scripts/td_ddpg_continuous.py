@@ -1,6 +1,6 @@
 
 '''
-Multi-processing for PPO continuous version 1
+TD DDPG
 '''
 
 import torch
