@@ -1,16 +1,12 @@
 <launch>
   <arg name="move_base_goal_frequency" default="0.5" />
   <arg name="agent_num" default="0" />
-  <arg name="robot_name" default="tb3"/>
-  <arg name="cmd_topic_name"  default="/tb3_0/jackal_velocity_controller/cmd_vel"/>
-  <arg name="params_file" default="teb_local_planner_params.yaml"/>
-  
-  <arg name="base_frame" default="$(arg robot_name)_$(arg agent_num)/base_link" />
-  <arg name="odom_frame" default="$(arg robot_name)_$(arg agent_num)/odom" />
-  <arg name="scan_frame" default="$(arg robot_name)_$(arg agent_num)/front_laser" />
-  <arg name="scan_topic" default="$(arg robot_name)_$(arg agent_num)/front/scan" />
-  <arg name="odom_topic" default="/$(arg robot_name)_$(arg agent_num)/odom" />
-  <arg name="map_frame" default="$(arg robot_name)_$(arg agent_num)/odom" />
+  <arg name="base_frame" default="tb3_$(arg agent_num)/base_link" />
+  <arg name="odom_frame" default="tb3_$(arg agent_num)/odom" />
+  <arg name="scan_frame" default="tb3_$(arg agent_num)/front_laser" />
+  <arg name="scan_topic" default="tb3_$(arg agent_num)/front/scan" />
+  <arg name="odom_topic" default="/tb3_$(arg agent_num)/odom" />
+  <arg name="map_frame" default="tb3_$(arg agent_num)/odom" />
 
   <arg name="use_global" default="true"/>
   <arg name="use_trajectory" default="false"/>
@@ -51,21 +47,18 @@
   <arg name="base_local_planner" default="base_local_planner/TrajectoryPlannerROS" if="$(arg use_trajectory)"/>
   <arg name="base_local_planner" default="dwa_local_planner/DWAPlannerROS" if="$(arg use_dwa)"/>
   <arg name="base_global_planner" default="navfn/NavfnROS" unless="$(arg use_global)"/>
-
-  <node pkg="move_base" type="move_base" respawn="false" name="move_base_node_$(arg robot_name)_$(arg agent_num)" output="screen">
+  <node pkg="move_base" type="move_base" respawn="false" name="move_base_node_$(arg agent_num)" output="screen">
     <param name="footprint_padding" value="0.05" />
     <param name="controller_frequency" value="20.0" />
     <param name="controller_patience" value="15.0" />
     <param name="recovery_behavior_enabled" value="true" />
-
-    <remap from="/cmd_vel" to="$(arg cmd_topic_name)" />
-
-    <remap from="/move_base_simple/goal" to="/move_base_simple/goal_$(arg robot_name)_$(arg agent_num)" />
-    <remap from="/move_base/cancel" to="/move_base_$(arg robot_name)_$(arg agent_num)/cancel" />
-    <remap from="/move_base/feedback" to="/move_base_$(arg robot_name)_$(arg agent_num)/feedback" />
-    <remap from="/move_base/goal" to="/move_base_$(arg robot_name)_$(arg agent_num)/goal" />
-    <remap from="/move_base/result" to="/move_base_$(arg robot_name)_$(arg agent_num)/result" />
-    <remap from="/move_base/status" to="/move_base_$(arg robot_name)_$(arg agent_num)/status" />
+    <remap from="/cmd_vel" to="/tb3_$(arg agent_num)/jackal_velocity_controller/cmd_vel" />
+    <remap from="/move_base_simple/goal" to="/move_base_simple/goal_$(arg agent_num)" />
+    <remap from="/move_base/cancel" to="/move_base_$(arg agent_num)/cancel" />
+    <remap from="/move_base/feedback" to="/move_base_$(arg agent_num)/feedback" />
+    <remap from="/move_base/goal" to="/move_base_$(arg agent_num)/goal" />
+    <remap from="/move_base/result" to="/move_base_$(arg agent_num)/result" />
+    <remap from="/move_base/status" to="/move_base_$(arg agent_num)/status" />
 
     <param name="local_costmap/global_frame" value="$(arg odom_frame)" />
     <param name="local_costmap/local_frame" value="$(arg base_frame)" />
@@ -96,7 +89,7 @@
     <!-- <rosparam file="$(find follow_ahead_rl)/config_nav_pioneer/base_local_planner_params.yaml" command="load" /> -->
 
     <!-- For teb base planner -->
-    <rosparam file="$(find follow_ahead_rl)/config_nav/$(arg params_file)" command="load" if="$(arg use_teb)" />
+    <rosparam file="$(find follow_ahead_rl)/config_nav/teb_local_planner_params.yaml" command="load" if="$(arg use_teb)" />
     <rosparam file="$(find follow_ahead_rl)/config_nav/planner.yaml" command="load" unless="$(arg use_teb)" />
 
   </node>

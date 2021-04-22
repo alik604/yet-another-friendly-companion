@@ -33,7 +33,7 @@
     </node>
   </group>
   <group ns = "$(arg first_person)">
-    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find follow_ahead_rl)/urdf/turtlebot3_$(arg model).urdf.xacro" />
+    <param name="robot_description" command="$(find xacro)/xacro --inorder $(find follow_ahead_rl)/urdf/turtlebot3_$(arg model)_without_laser.urdf.xacro" />
 
     <node pkg="robot_state_publisher" type="robot_state_publisher" name="robot_state_publisher" output="screen">
       <param name="publish_frequency" type="double" value="50.0" />

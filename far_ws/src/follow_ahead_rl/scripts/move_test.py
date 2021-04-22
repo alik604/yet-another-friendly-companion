@@ -23,7 +23,7 @@ if __name__ == '__main__':
 
     mode = 4
     while True:
-        env.set_person_mode(mode % 5)
+        # env.set_person_mode(mode % 5)
         mode += 1
         state = env.reset()
 
