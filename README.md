@@ -29,7 +29,7 @@ Our approach is to use a popular model-based learning algorithm (i.e., World Mod
 
 **World Model**: 
 
-> Convolutional Variational AutoEncoder -> Long Short Term Memory Network -> Controller.
+> Long Short Term Memory Network -> Controller
 
 **HINN + Heuristic Search:** The Human Intent Neural Network is a feed forward neural network, which outputs the prediction of the next human state. Prediction is used to generate a goal for the robot. Heuristic search algorithms: Monte Carlo Tree Search (MCTS) or Distance Heuristic.
 
