@@ -58,7 +58,7 @@ latent_space = 64 # hidden of the LSTM & of the controller
 # gaussian = 5
 
 pop_size = 8 #4 # if this is larger than index, it will prevent a index error.
-n_samples = 2 #4
+n_samples = 1 #4
 
 
 
@@ -68,7 +68,7 @@ parser.add_argument("--logdir", default="model_weights/world_model", type=str, h
 parser.add_argument("--display", default=True, action="store_true", help="Use progress bars if specified.")
 args = parser.parse_args()
 
-time_limit = 1000
+time_limit = 500 #1000
 print(f"args.logdir {args.logdir}")
 print("First") # this gets called from every process, but not if its in main()... 
 ############################################################################
@@ -185,7 +185,7 @@ class RolloutGenerator(object):
         # copy params into the controller
         if params is not None:
             load_parameters(params, self.controller)
-        print(f'we are in rollout')
+        # print(f'we are in rollout')
         obs = env.reset()
         cumulative = 0
         i = 0
@@ -358,7 +358,6 @@ if __name__ == "__main__":
         now = time()
         for i in range(episode_length):
             # state = state #.to(device=device)
-            
             pred = model.step(state, hid[0])
             #TODO: action goal is a x, y vector that is translative to the robot
             #Important to acknowledge: Obstacle Avoidance -> if for some reason this doesnt work -> we might want our thing to output a linear and angular velocity. -> we will have to transition that to the robot-robot using the TEB
@@ -447,19 +446,17 @@ if __name__ == "__main__":
     es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1, {"popsize": pop_size})
     rollout_generator = RolloutGenerator() # global variable for use in slave routine
 
-    target_return = 500
+    target_return = 250
     epoch = 0
     log_step = 3
     cur_best = 0
 
     print("#################### ABOUT TO RUN CONTROLLER TRAINING ################")
-    while True: # not es.stop() TODO I chaged this...
+    while True: # notes.stop(): #  we could* make this True
         if -cur_best > target_return:
-            print("Already better than target, breaking...")
+            print("Already better than target, terminating...")
             break
-
         result_list = [0] * pop_size  # result list. like np.zeros(pop_size).tolist()
-        print(f'pop_size is {pop_size}')
         solutions = es.ask()
 
         # push parameters to queue
@@ -467,12 +464,14 @@ if __name__ == "__main__":
             for _ in range(n_samples):
                 p_queue.put((s_id, s))
 
-        slave_routine() # fill r_queque with p_queue WITH IS FROM ABOVE 
+        # This slave call is stealing the data the other slave calls needs..
+        if epoch % log_step != 0:
+            slave_routine() # fill r_queque with p_queue WITH IS FROM ABOVE 
 
         # print("we just put something in p_queue")
         
         while not r_queue.empty():
-            print("We are in this for loop?")
+            # print("We are in this for loop?")
             result_list_idx, r = r_queue.get()
             try:
                 result_list[result_list_idx] += r / n_samples
@@ -487,9 +486,9 @@ if __name__ == "__main__":
         es.disp()
 
         # evaluation and saving
-        if epoch % log_step == log_step - 1:
-            best_params, best, std_best = evaluate(solutions, result_list)
+        if epoch % log_step == 0:
             slave_routine() # fill r_queque with p_queue, WHICH IS FROM evaluate()
+            best_params, best, std_best = evaluate(solutions, result_list)
             print(f"Current evaluation: {best}+/-{std_best}") # :.2f
             if not cur_best or cur_best > best:
                 cur_best = best
