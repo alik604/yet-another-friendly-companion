@@ -4,6 +4,15 @@
 
 By Emma Hughson, Kai Ho Anthony Cheung, and Khizr Ali Pardhan. An expansion upon [*LBGP: Learning Based Goal Planning for Autonomous Following in Front*](https://arxiv.org/pdf/2011.03125v1.pdf). 
 
+## Meta 
+Branch: *Purpose*  
+* Main: {Team} All work except World Models code and enviroment 
+* World Models: {Emma & K. Ali} This has a outdate ROS environment, as the newer would not run on Ali's machine
+* Development: {K. Ali} Everything important in merged into **Main** 
+* Monte Carlo: {Emma} Everything important in merged into **World Models**
+* Other Branches: {Anthony} Are for the ROS environment. All work is merged into **Main**
+
+
 ## Introduction
 
 **What is Follow-Ahead?** Following-ahead algorithms use machine learning to predict human trajectory to stay ahead of humans. Follow-behind algorithms have had more recognition. For example, one application is a follow-behind shopping cart. **But,** there is a lack of security. 
