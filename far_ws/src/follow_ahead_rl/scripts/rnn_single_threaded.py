@@ -453,7 +453,7 @@ if __name__ == "__main__":
     cur_best = 0
 
     print("#################### ABOUT TO RUN CONTROLLER TRAINING ################")
-    while not es.stop():
+    while True: # not es.stop() TODO I chaged this...
         if -cur_best > target_return:
             print("Already better than target, breaking...")
             break
@@ -490,10 +490,10 @@ if __name__ == "__main__":
         if epoch % log_step == log_step - 1:
             best_params, best, std_best = evaluate(solutions, result_list)
             slave_routine() # fill r_queque with p_queue, WHICH IS FROM evaluate()
-            print(f"Current evaluation: {cur_best}+/-{std_best}") # :.2f
+            print(f"Current evaluation: {best}+/-{std_best}") # :.2f
             if not cur_best or cur_best > best:
                 cur_best = best
-                print(f"Saving...")
+                print(f"Saving... Current best is {cur_best}")
                 load_parameters(best_params, controller)
                 torch.save(
                     {"epoch": epoch,
