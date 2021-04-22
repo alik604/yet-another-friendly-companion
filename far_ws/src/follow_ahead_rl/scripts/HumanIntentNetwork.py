@@ -6,8 +6,6 @@ NN does:
 
  - Pass into MCTS
  - MCST outputs best action
-
-Does this sound like Double Q learning?
 --------------------------------------------------------------
 How to use:
 Terminal 1: Launch turtlebot.launch
@@ -18,7 +16,8 @@ Terminal 4: run this file
 * DON'T FORGET TO SOURCE THE WORKSPACE IN EACh TERMINAL
 ie: cd .../far_ws && source devel/setup.bash
 
-if you have a issue with `tf_node.py`, follow this https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
+if you have a issue with `tf_node.py`, follow this
+https://answers.ros.org/question/326226/importerror-dynamic-module-does-not-define-module-export-function-pyinit__tf2/
 '''
 
 import os
@@ -27,35 +26,35 @@ import torch.nn as nn
 import torch.optim as optim
 
 
-class RBF_HumanIntentNetwork(nn.Module):
-    '''
-    theory:    http://mccormickml.com/2013/08/15/radial-basis-function-network-rbfn-tutorial/
-    code:      https://github.com/csnstat/rbfn
-    code-alt:  https://github.com/JeremyLinux/PyTorch-Radial-Basis-Function-Layer
-    '''
+# class RBF_HumanIntentNetwork(nn.Module):
+#     '''
+#     theory:    http://mccormickml.com/2013/08/15/radial-basis-function-network-rbfn-tutorial/
+#     code:      https://github.com/csnstat/rbfn
+#     code-alt:  https://github.com/JeremyLinux/PyTorch-Radial-Basis-Function-Layer
+#     '''
 
-    def __init__(self, centers=500, num_class=2):
-        super(RBF_HumanIntentNetwork, self).__init__()
-        self.num_class = num_class
-        self.num_centers = centers  # .size(0)
+#     def __init__(self, centers=500, num_class=2):
+#         super(RBF_HumanIntentNetwork, self).__init__()
+#         self.num_class = num_class
+#         self.num_centers = centers  # .size(0)
 
-        self.centers = nn.Parameter(centers)
-        self.beta = nn.Parameter(torch.ones(1, self.num_centers)/10)
-        self.linear = nn.Linear(self.num_centers, self.num_class, bias=True)
-        utils.initialize_weights(self)
+#         self.centers = nn.Parameter(centers)
+#         self.beta = nn.Parameter(torch.ones(1, self.num_centers)/10)
+#         self.linear = nn.Linear(self.num_centers, self.num_class, bias=True)
+#         utils.initialize_weights(self)
 
-    def kernel_fun(self, batches):
-        n_input = batches.size(0)  # number of inputs
-        A = self.centers.view(self.num_centers, -1).repeat(n_input, 1, 1)
-        B = batches.view(n_input, -1).unsqueeze(1).repeat(1,
-                                                          self.num_centers, 1)
-        C = torch.exp(-self.beta.mul((A-B).pow(2).sum(2, keepdim=False).sqrt()))
-        return C
+#     def kernel_fun(self, batches):
+#         n_input = batches.size(0)  # number of inputs
+#         A = self.centers.view(self.num_centers, -1).repeat(n_input, 1, 1)
+#         B = batches.view(n_input, -1).unsqueeze(1).repeat(1,
+#                                                           self.num_centers, 1)
+#         C = torch.exp(-self.beta.mul((A-B).pow(2).sum(2, keepdim=False).sqrt()))
+#         return C
 
-    def forward(self, batches):
-        radial_val = self.kernel_fun(batches)
-        class_score = self.linear(radial_val)
-        return class_score
+#     def forward(self, batches):
+#         radial_val = self.kernel_fun(batches)
+#         class_score = self.linear(radial_val)
+#         return class_score
 
 
 class HumanIntentNetwork(nn.Module):
