@@ -1,12 +1,12 @@
 '''
-TODO
+Single processed world model 
+
 get CUDA working... issues with queue
 get batch_size working... not worth it
 
 human not moving while training rnn
 '''
 
-# rnn.py ali's changes
 import argparse
 from os import mkdir, unlink, listdir, getpid
 from os.path import join, exists

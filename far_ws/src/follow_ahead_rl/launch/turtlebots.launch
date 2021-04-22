@@ -24,7 +24,7 @@
 
   <include file="$(find follow_ahead_rl)/launch/multi_navigation.launch"/>
 
-  <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/>
+  <!--   <node name="tf_node" pkg="follow_ahead_rl" type="tf_node.py" output="screen"/> -->
 
 
   <!-- <include file="$(find follow_ahead_rl)/launch/spawn_obstacles.launch">
