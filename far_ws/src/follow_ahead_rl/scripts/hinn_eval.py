@@ -65,7 +65,7 @@ if __name__ == '__main__':
             state, reward, done, _ = env.step(action)
             cumulative_reward += reward
         cumulative_reward_per_episode.append(cumulative_reward)
-        print(f"Episode Time Taken: {time.time() - start}")
+        print(f"Episode Time Taken: {time() - start}")
     
     print(f"Cumulative reward: {cumulative_reward_per_episode}")
     
