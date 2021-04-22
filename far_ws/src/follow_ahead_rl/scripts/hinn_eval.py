@@ -1,4 +1,4 @@
-from time import sleep
+from time import sleep, time
 import random
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -49,6 +49,7 @@ if __name__ == '__main__':
                 mode += 1
         env.set_person_mode(mode % 5)
         print(f"Running Episode {i} Person Mode = {mode % 5}")
+        start = time()
         mode += 1
         state = env.reset()
 
@@ -57,13 +58,14 @@ if __name__ == '__main__':
             state_tensor = torch.Tensor(state).to(device)
             ps_prediction = model.forward(state_tensor)
 
-            action = dis_heuristic.calculate_vector(ps_prediction, [])
+            action = dis_heuristic.calculate_vector(ps_prediction)
             
             env.set_marker_pose([ps_prediction[0],ps_prediction[1]])
             sleep(0.1)
             state, reward, done, _ = env.step(action)
             cumulative_reward += reward
         cumulative_reward_per_episode.append(cumulative_reward)
+        print(f"Episode Time Taken: {time.time() - start}")
     
     print(f"Cumulative reward: {cumulative_reward_per_episode}")
     
