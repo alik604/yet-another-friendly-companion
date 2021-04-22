@@ -1,51 +1,58 @@
 
 '''
-TD DDPG
+Multi-processing for PPO continuous version 1
 '''
-
-import torch
-import torch as T
-import torch.nn.functional as F
-import torch.optim as optim
-import torch.nn as nn
-from torch.distributions import Normal, MultivariateNormal
-
-import threading as td
-from multiprocessing.managers import BaseManager
-from multiprocessing import Process, Manager
-from torch.multiprocessing import Process
-import torch.multiprocessing as mp
-
-import matplotlib.pyplot as plt
-
 import time
-import argparse
+
 import math
-# import random
+import random
 import os
 
 import gym
-import gym_gazeboros_ac
+import gym_gazeboros#_ac
 import numpy as np
-# from logger import Logger
+from logger import Logger
 
+import torch
+import torch as T
+torch.multiprocessing.set_start_method('forkserver', force=True) # critical for make multiprocessing work
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.distributions import Normal, MultivariateNormal
 
-# critical for make multiprocessing work
-torch.multiprocessing.set_start_method('forkserver', force=True)
+from IPython.display import clear_output
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from IPython.display import display
 
+import argparse
+import time
+
+import torch.multiprocessing as mp
+from torch.multiprocessing import Process
+
+from multiprocessing import Process, Manager
+from multiprocessing.managers import BaseManager
+
+import threading as td
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(f'Device is {device}')
 
 
+parser = argparse.ArgumentParser(description='Train or test neural net motor controller.')
+parser.add_argument('--train', dest='train', action='store_true', default=True)
+parser.add_argument('--test', dest='test', action='store_true', default=False)
+
+args = parser.parse_args()
+
 ###############################  hyper parameters  #########################
 
-ENV_NAME = 'gazeborosAC-v0'  # 'gazeborosAC-v0'  # environment name
+ENV_NAME = 'gazeboros-v0' # 'gazeborosAC-v0'  # environment name
 RANDOMSEED = 42  # random seed
 
 ###############################  TD DDPG   #################################
-
-
 class ReplayBuffer():
     def __init__(self, max_size, input_shape, n_actions):
         self.mem_size = max_size
@@ -79,10 +86,9 @@ class ReplayBuffer():
 
         return states, actions, rewards, states_, dones
 
-
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims, n_actions,
-                 name, chkpt_dir='./model_weights/TD3'):
+            name, chkpt_dir='./model_weights/TD3'):
         super(CriticNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
@@ -91,7 +97,6 @@ class CriticNetwork(nn.Module):
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_td3')
-        self.checkpoint_dir_periodic = chkpt_dir+'/periodic'
 
         self.fc1 = nn.Linear(self.input_dims[0] + n_actions, self.fc1_dims)
         self.fc2 = nn.Linear(self.fc1_dims, self.fc2_dims)
@@ -116,19 +121,13 @@ class CriticNetwork(nn.Module):
         print('\n... saving checkpoint ...\n')
         T.save(self.state_dict(), self.checkpoint_file)
 
-    def save_periodic_checkpoint(self, epoch):
-        print('\n... saving periodic checkpoint ...\n')
-        T.save(self.state_dict(), os.path.join(
-            self.checkpoint_dir_periodic, f'{self.name}_td3_{epoch:.0f}'))
-
     def load_checkpoint(self):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
 
-
 class ActorNetwork(nn.Module):
     def __init__(self, alpha, input_dims, fc1_dims, fc2_dims,
-                 n_actions, name, chkpt_dir='./model_weights/TD3'):
+            n_actions, name, chkpt_dir='./model_weights/TD3'):
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
@@ -136,8 +135,6 @@ class ActorNetwork(nn.Module):
         self.n_actions = n_actions
         self.name = name
         self.checkpoint_dir = chkpt_dir
-        self.checkpoint_dir_periodic = chkpt_dir+'/periodic'
-
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name+'_td3')
 
         self.fc1 = nn.Linear(*self.input_dims, self.fc1_dims)
@@ -163,21 +160,15 @@ class ActorNetwork(nn.Module):
         print('\n... saving checkpoint ...\n')
         T.save(self.state_dict(), self.checkpoint_file)
 
-    def save_periodic_checkpoint(self, epoch):
-        print('\n... saving periodic checkpoint ...\n')
-        T.save(self.state_dict(), os.path.join(
-            self.checkpoint_dir_periodic, f'{self.name}_td3_{epoch:.0f}'))
-
     def load_checkpoint(self):
         print('... loading checkpoint ...')
         self.load_state_dict(T.load(self.checkpoint_file))
 
-
 class Agent():
     def __init__(self, alpha, beta, input_dims, tau, env,
-                 gamma=0.99, update_actor_interval=2, warmup=1000,
-                 n_actions=2, max_size=1000000, layer1_size=400,
-                 layer2_size=300, batch_size=100, noise=0.1):
+            gamma=0.99, update_actor_interval=2, warmup=1000,
+            n_actions=2, max_size=1000000, layer1_size=400,
+            layer2_size=300, batch_size=100, noise=0.1):
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.gamma = gamma
         self.tau = tau
@@ -192,32 +183,32 @@ class Agent():
         self.update_actor_iter = update_actor_interval
 
         self.actor = ActorNetwork(alpha, input_dims, layer1_size,
-                                  layer2_size, n_actions=n_actions, name='actor')
+                        layer2_size, n_actions=n_actions, name='actor')
 
         self.critic_1 = CriticNetwork(beta, input_dims, layer1_size,
-                                      layer2_size, n_actions=n_actions, name='critic_1')
+                        layer2_size, n_actions=n_actions, name='critic_1')
         self.critic_2 = CriticNetwork(beta, input_dims, layer1_size,
-                                      layer2_size, n_actions=n_actions, name='critic_2')
+                        layer2_size, n_actions=n_actions, name='critic_2')
 
         self.target_actor = ActorNetwork(alpha, input_dims, layer1_size,
-                                         layer2_size, n_actions=n_actions, name='target_actor')
+                    layer2_size, n_actions=n_actions, name='target_actor')
         self.target_critic_1 = CriticNetwork(beta, input_dims, layer1_size,
-                                             layer2_size, n_actions=n_actions, name='target_critic_1')
+                layer2_size, n_actions=n_actions, name='target_critic_1')
         self.target_critic_2 = CriticNetwork(beta, input_dims, layer1_size,
-                                             layer2_size, n_actions=n_actions, name='target_critic_2')
+                layer2_size, n_actions=n_actions, name='target_critic_2')
 
         self.noise = noise
         self.update_network_parameters(tau=1)
 
     def choose_action(self, observation):
         if self.time_step < self.warmup:
-            mu = T.tensor(np.random.normal(scale=self.noise,
-                                           size=(self.n_actions,)), device=self.device)
+            mu = T.tensor(np.random.normal(scale=self.noise, 
+                                            size=(self.n_actions,)), device=self.device)
         else:
             state = T.tensor(observation, dtype=T.float, device=self.device)
             mu = self.actor.forward(state).to(self.device)
         mu_prime = mu + T.tensor(np.random.normal(scale=self.noise),
-                                 dtype=T.float, device=self.device)
+                                    dtype=T.float, device=self.device)
 
         mu_prime = T.clamp(mu_prime, self.min_action[0], self.max_action[0])
         self.time_step += 1
@@ -231,22 +222,22 @@ class Agent():
         # seconds = time.time()
 
         if self.memory.mem_cntr < self.batch_size:
-            return
+            return 
         state, action, reward, new_state, done = \
-            self.memory.sample_buffer(self.batch_size)
+                self.memory.sample_buffer(self.batch_size)
 
-        reward = T.tensor(reward,    dtype=T.float, device=self.device)
-        done = T.tensor(done,                     device=self.device)
-        state_ = T.tensor(new_state, dtype=T.float, device=self.device)
-        state = T.tensor(state,     dtype=T.float, device=self.device)
-        action = T.tensor(action,    dtype=T.float, device=self.device)
-
+        reward  = T.tensor(reward,    dtype=T.float, device=self.device)
+        done    = T.tensor(done,                     device=self.device)
+        state_  = T.tensor(new_state, dtype=T.float, device=self.device)
+        state   = T.tensor(state,     dtype=T.float, device=self.device)
+        action  = T.tensor(action,    dtype=T.float, device=self.device)
+        
         target_actions = self.target_actor.forward(state_)
         target_actions = target_actions + \
-            T.clamp(T.tensor(np.random.normal(scale=0.2)), -0.5, 0.5)
-        target_actions = T.clamp(target_actions, self.min_action[0],
-                                 self.max_action[0])
-
+                T.clamp(T.tensor(np.random.normal(scale=0.2)), -0.5, 0.5)
+        target_actions = T.clamp(target_actions, self.min_action[0], 
+                                self.max_action[0])
+        
         q1_ = self.target_critic_1.forward(state_, target_actions)
         q2_ = self.target_critic_2.forward(state_, target_actions)
 
@@ -285,7 +276,7 @@ class Agent():
         actor_loss.backward()
         self.actor.optimizer.step()
 
-        # print(f'Time to update_network_parameters is: {time.time() - seconds}\n\n')
+        # print(f'Time to update_network_parameters is: {time.time() - seconds}\n\n')	
 
         self.update_network_parameters()
 
@@ -309,15 +300,15 @@ class Agent():
 
         for name in critic_1:
             critic_1[name] = tau*critic_1[name].clone() + \
-                (1-tau)*target_critic_1[name].clone()
+                    (1-tau)*target_critic_1[name].clone()
 
         for name in critic_2:
             critic_2[name] = tau*critic_2[name].clone() + \
-                (1-tau)*target_critic_2[name].clone()
+                    (1-tau)*target_critic_2[name].clone()
 
         for name in actor:
             actor[name] = tau*actor[name].clone() + \
-                (1-tau)*target_actor[name].clone()
+                    (1-tau)*target_actor[name].clone()
 
         self.target_critic_1.load_state_dict(critic_1)
         self.target_critic_2.load_state_dict(critic_2)
@@ -330,14 +321,6 @@ class Agent():
         self.critic_2.save_checkpoint()
         self.target_critic_1.save_checkpoint()
         self.target_critic_2.save_checkpoint()
-
-    def save_periodic_models(self, epoch):
-        self.actor.save_periodic_checkpoint(epoch)
-        self.target_actor.save_periodic_checkpoint(epoch)
-        self.critic_1.save_periodic_checkpoint(epoch)
-        self.critic_2.save_periodic_checkpoint(epoch)
-        self.target_critic_1.save_periodic_checkpoint(epoch)
-        self.target_critic_2.save_periodic_checkpoint(epoch)
 
     def load_models(self):
         self.actor.load_checkpoint()
@@ -357,19 +340,18 @@ class PolicyNetwork(nn.Module):
         mean, log_std = self.forward(state)
         std = log_std.exp()
         normal = Normal(0, 1)
-        z = normal.sample()
-        action = mean+std*z
+        z      = normal.sample()
+        action  = mean+std*z
         action = torch.clamp(action, -self.action_range, self.action_range)
         return action.squeeze(0)
 
     def sample_action(self,):
-        a = torch.FloatTensor(self.num_actions).uniform_(-1, 1)
+        a=torch.FloatTensor(self.num_actions).uniform_(-1, 1)
         return a.numpy()
-
 
 class NormalizedActions(gym.ActionWrapper):
     def _action(self, action):
-        low = self.action_space.low
+        low  = self.action_space.low
         high = self.action_space.high
 
         action = low + (action + 1.0) * 0.5 * (high - low)
@@ -378,7 +360,7 @@ class NormalizedActions(gym.ActionWrapper):
         return action
 
     def _reverse_action(self, action):
-        low = self.action_space.low
+        low  = self.action_space.low
         high = self.action_space.high
 
         action = 2 * (action - low) / (high - low) - 1
@@ -388,12 +370,13 @@ class NormalizedActions(gym.ActionWrapper):
 
 
 def plot(rewards, FILENAME):
-    plt.figure(figsize=(10, 5))
+    clear_output(True)
+    plt.figure(figsize=(10,5))
 
     running_avg = np.zeros(len(rewards))
     for i in range(len(running_avg)):
         running_avg[i] = np.mean(rewards[max(0, i-50):(i+1)])
-
+    
     plt.plot(rewards, label='Rewards')
     plt.plot(running_avg, label='Running Avg')
     plt.title('Running average of previous 50 rewards')
@@ -415,7 +398,7 @@ def main():
     torch.manual_seed(RANDOMSEED)
 
     env = NormalizedActions(gym.make(ENV_NAME).unwrapped)
-
+    
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.shape[0]
     print(f'State_dim:  {state_dim}')
@@ -425,22 +408,17 @@ def main():
     env.set_agent(0)
 
     agent = Agent(alpha=0.001, beta=0.001,
-                  input_dims=[state_dim], tau=0.005,
-                  env=env, batch_size=100, layer1_size=400, layer2_size=300,
-                  n_actions=action_dim)
-    agent.load_models()
+        input_dims=[state_dim], tau=0.005,
+        env=env, batch_size=100, layer1_size=400, layer2_size=300,
+        n_actions=action_dim)
 
-
-
-    f = open("./model_weights/TD3/logs.txt", "w")
-    score_history = []
-
-    n_games = 1400  # all night
-    n_games = 700   # half night
-    window = 25
-    best_score = 5  # env.reward_range[0]# this does not work as intended
+    best_score = env.reward_range[0]
     print(f'best_score: {best_score}')
 
+    score_history = []
+
+    agent.load_models()
+    n_games = 100000
     for i in range(n_games):
         observation = env.reset()
         done = False
@@ -448,32 +426,20 @@ def main():
         while not done:
             action = agent.choose_action(observation)
             observation_, reward, done, info = env.step(action)
-            # if done: break # cleaner exit, but might not learn terminal state...
             agent.remember(observation, action, reward, observation_, done)
             agent.learn()
             score += reward
             observation = observation_
         score_history.append(score)
-        avg_score = np.mean(score_history[-window:])
+        avg_score = np.mean(score_history[-50:])
 
-        if i % 500 == 0:
-            agent.save_periodic_models(epoch=i)
-
-        if avg_score > best_score and i > window:
-            # print(f'avg_score is greater than best_score... Saving Model')
-            plot(score_history,
-                 f'Turtlebot_Continuous_TD_DDPG_games_{n_games}.png')
+        if avg_score > best_score and len(score_history) > n_games/4:
             best_score = avg_score
             agent.save_models()
 
-        f.write(f"Episode {i} Score {score:.1f} Average score {avg_score:.1f}\n")
         print(f'Episode {i} Score {score:.1f} Average score {avg_score:.1f}\n\n')
 
-    f.close()
-    env.close()
     plot(score_history, f'Turtlebot_Continuous_TD_DDPG_games_{n_games}.png')
-    # if n_games >= 1000: # rather than best model
-    agent.save_periodic_models(epoch=n_games)
 
     # a = ppo.choose_action(s)
     # a = [-0.91, -0.91]
@@ -486,13 +452,13 @@ def main():
     #     print(f'Exiting..')
     #     env.close()
     #     exit()
-
+    
     # print(f'Episode: {ep}/{EP_MAX}  | Episode Reward: {ep_r:.4f}  | Running Time: {time.time() - t0:.4f}')
     # logger.scalar_summary("reward".format(id), ep_r, ep*4)
 
+
     # ppo.save_model(MODEL_PATH)
     # env.close()
-
 
 if __name__ == '__main__':
     main()

@@ -1,6 +1,16 @@
 '''
 Single processed world model 
 
+
+Reference: https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
+Emma Hughson: Original work, core code, debugging loss function  
+Khizr Ali Pardhan: Debugging, code review, testing, adapting to our ROS env, debugging, making single threaded and dubuging and training
+
+Despite difference in details, Equal time was invested.  
+
+
+
+TODO 
 get CUDA working... issues with queue
 get batch_size working... not worth it
 
@@ -125,7 +135,7 @@ class Controller(nn.Module):
     def forward(self, obs, h):
         # print("we are in controller class?")
         # print(obs.size())
-        obs = obs.view(1, 67)
+        obs = obs.view(1, 47)
         # print(h.size())
         # print(h.size())
         state = torch.cat([obs, h], dim=-1)
@@ -151,10 +161,7 @@ class RolloutGenerator(object):
         """ Build vae, rnn, controller and environment. """
         # Loading world model and vae
         # references: https://github.com/ctallec/world-models/blob/master/utils/misc.py
-        ctrl_file = join(args.logdir, "ctrl", "best.tar")
-        # obs_dim = 8 #TODO these need to be fixed for our environment
-        # act_dim = 2   #2 #TODO these need to be fixed for out environment
-        
+        ctrl_file = join(args.logdir, "ctrl", "best.tar")      
         self.controller = Controller(obs_dim, act_dim).to(device)
 
         # load controller if it was previously saved
@@ -169,7 +176,7 @@ class RolloutGenerator(object):
         """
 
         """
-        obs = env.reset() # CHANGED. we are now given it from rollout. 
+        # obs = env.reset() # CHANGED. we are now given it from rollout. 
 
         hid = (torch.zeros(1, latent_space, dtype=pt.float), torch.zeros(1, latent_space, dtype=pt.float))  # h  # c $ TODO 64 changed to latent_space, which is 64 
  
@@ -177,8 +184,7 @@ class RolloutGenerator(object):
 
         act = self.controller.forward(obs, hid[0])
         act = act.detach().clamp(min=-1, max=1).numpy().flatten()
-        # act = torch.argmax(act)
-        # act = act.cpu().numpy()
+        # act = torch.argmax(act).numpy()
         return act
 
     def rollout(self, params, render=False):
@@ -344,8 +350,8 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
-    num_episodes = 1 #ANTHONY SAID THIS SHOULD BE 100
-    episode_length = 15 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
+    num_episodes = 2000 # later 5000
+    episode_length = 500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
@@ -360,7 +366,7 @@ if __name__ == "__main__":
         hid = (torch.zeros(batch_size, model.hidden, dtype=pt.float), # .to(device)
                torch.zeros(batch_size, model.hidden, dtype=pt.float))
         epoch_count.append(i_episode)
-        loss = 0.0
+        loss = 0.0 
         now = time()
         for i in range(episode_length):
             # state = state #.to(device=device)
@@ -394,12 +400,12 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
             # print(done)
-            # if done:
-            #     break
+            if done:
+                break
 
         # print(f"time taken = {time() - now}")
         # print(f'val  is {val}')
-        print(f'reward  is {reward}')
+        print(f'\n\nEpoch is {i_episode} | Rewards is {reward}\n\n')
         loss = loss/episode_length 
         val = loss.item()
 
@@ -412,7 +418,33 @@ if __name__ == "__main__":
         # print("#################### UPDATED STATE #########################")
         losses.append(val)
         rewards.append(reward)
+
+        if i_episode % 100: 
+            torch.save(model.state_dict(), rnn_filename)
+
     torch.save(model.state_dict(), rnn_filename)
+    def moving_average(x, w):
+        return np.convolve(x, np.ones(w), 'valid') / w
+    window_size = 50 
+    plt.plot(moving_average(rewards, window_size))
+    plt.xlabel('Episode')
+    plt.ylabel(f'Rewards (MA-{window_size})')
+    plt.title(f'Rewards of World Model\'s LSTM')
+    plt.savefig('Rewards with MA.png')
+    # plt.show()
+    plt.clf()
+    plt.cla()
+    plt.close()
+
+    plt.plot(moving_average(np.cumsum(rewards), 3))
+    plt.xlabel('Episode')
+    plt.ylabel('Cumulative Rewards') 
+    plt.title('Cumulative Rewards of World Model\'s LSTM')
+    plt.savefig('Cumulative Rewards of World Mode LSTM.png')
+    # plt.show()
+    plt.clf()
+    plt.cla()
+    plt.close()
 
     # env.close()
     # print('close env and sleep')
@@ -456,6 +488,7 @@ if __name__ == "__main__":
     epoch = 0
     log_step = 3
     cur_best = 0
+    rewards = []
 
     print("#################### ABOUT TO RUN CONTROLLER TRAINING ################")
     while True: # notes.stop(): #  we could* make this True
@@ -496,15 +529,16 @@ if __name__ == "__main__":
             slave_routine() # fill r_queque with p_queue, WHICH IS FROM evaluate()
             best_params, best, std_best = evaluate(solutions, result_list)
             print(f"Current evaluation: {best}+/-{std_best}") # :.2f
-            if not cur_best or cur_best > best:
-                cur_best = best
-                print(f"Saving... Current best is {cur_best}")
-                load_parameters(best_params, controller)
-                torch.save(
-                    {"epoch": epoch,
-                     "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
-                     "state_dict": controller.state_dict(), },
-                        join(ctrl_dir, "best.tar"))
+            rewards.append(best)
+            # if not cur_best or cur_best > best: #TODO changed
+            cur_best = best
+            print(f"Saving... Current best is {cur_best}")
+            load_parameters(best_params, controller)
+            torch.save(
+                {"epoch": epoch,
+                    "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
+                    "state_dict": controller.state_dict(), },
+                    join(ctrl_dir, "best.tar"))
             if -best > target_return:
                 print(f"Terminating controller training with value {best}...")
                 break
@@ -514,4 +548,16 @@ if __name__ == "__main__":
         
     print('program exiting...')
     es.result_pretty()
+
+    plt.clf()
+    plt.cla()
+    plt.close()
+
+    plt.plot(rewards)
+    plt.xlabel('Epoch of Training Controller')
+    plt.ylabel(f'Rewards')
+    plt.title(f'Rewards of World Model\'s Controller')
+    plt.savefig('Rewards.png')
+    # plt.show()
+
     env.close()

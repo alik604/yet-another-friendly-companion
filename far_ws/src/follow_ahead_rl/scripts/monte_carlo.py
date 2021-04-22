@@ -297,7 +297,8 @@ num_episodes = 50 #40000
 print('observation space:', env.observation_space.shape[0])
 print('action space:', env.action_space.n)
 
-policy = MCTS(env, n_states, hidden_size, n_actions) # .to(device)
+policy = MCTS(env, n_states, hidden_size, n_actions).to(device)
+scores, reward = policy.reinforce_mc(env, 10000)
 
 epsilon_at_end = policy.get_epsilon(num_episodes)
 # even if this condistion is not met, Policy may still be inadequate in exploitation

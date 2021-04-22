@@ -352,6 +352,13 @@ class Population:
     return all(success)
 
     #
+######### note sure about these classes/functions #####################
+class EvolutionStrategy:
+  # Wrapper for CMAEvolutionStrategy
+  def __init__(self, mu, sigma, popsize, weight_decay=0.01):
+    self.es = CMAEvolutionStrategy(mu.tolist(), sigma, {'popsize': popsize})
+    self.weight_decay = weight_decay
+    self.solutions = None
 
 ######### note sure about these classes/functions #####################
 class EvolutionStrategy:
@@ -620,3 +627,4 @@ if __name__ == '__main__':
 
   main(args)
 
+  '''
