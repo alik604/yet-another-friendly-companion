@@ -1,11 +1,15 @@
 '''
+@Author Khizr Ali Pardhan 
+    - HINN torch code 
+    - Collection and ANN training script. which have since been split in to `hinn_data_collector.py` and `hinn_train.py`
+
 NN does:
  - Takes state 
- - - loss. MSE(human.next_state and human.next_state_prime)
  - Output possible moves of human
 
  - Pass into MCTS
  - MCST outputs best action
+ - Distance huristic  
 --------------------------------------------------------------
 How to use:
 Terminal 1: Launch turtlebot.launch
