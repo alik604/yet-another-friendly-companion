@@ -340,8 +340,8 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
-    num_episodes = 10 #ANTHONY SAID THIS SHOULD BE 100
-    episode_length = 4500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
+    num_episodes = 100      # 
+    episode_length = 99999  # 
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
