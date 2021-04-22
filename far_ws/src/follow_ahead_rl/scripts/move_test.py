@@ -30,7 +30,7 @@ if __name__ == '__main__':
 
         c = 0
         for i in range(EPISODE_LEN):
-            action = [0,0]
+            action = [.1,.1]
             state, reward, done, _ = env.step(action)
             
             # Prints out system velocities
