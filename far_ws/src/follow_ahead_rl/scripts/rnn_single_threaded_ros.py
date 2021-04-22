@@ -125,7 +125,7 @@ class Controller(nn.Module):
     def forward(self, obs, h):
         # print("we are in controller class?")
         # print(obs.size())
-        obs = obs.view(1, 67)
+        obs = obs.view(1, 47)
         # print(h.size())
         # print(h.size())
         state = torch.cat([obs, h], dim=-1)
@@ -151,10 +151,7 @@ class RolloutGenerator(object):
         """ Build vae, rnn, controller and environment. """
         # Loading world model and vae
         # references: https://github.com/ctallec/world-models/blob/master/utils/misc.py
-        ctrl_file = join(args.logdir, "ctrl", "best.tar")
-        # obs_dim = 8 #TODO these need to be fixed for our environment
-        # act_dim = 2   #2 #TODO these need to be fixed for out environment
-        
+        ctrl_file = join(args.logdir, "ctrl", "best.tar")      
         self.controller = Controller(obs_dim, act_dim).to(device)
 
         # load controller if it was previously saved
@@ -169,7 +166,7 @@ class RolloutGenerator(object):
         """
 
         """
-        obs = env.reset() # CHANGED. we are now given it from rollout. 
+        # obs = env.reset() # CHANGED. we are now given it from rollout. 
 
         hid = (torch.zeros(1, latent_space, dtype=pt.float), torch.zeros(1, latent_space, dtype=pt.float))  # h  # c $ TODO 64 changed to latent_space, which is 64 
  
@@ -177,8 +174,7 @@ class RolloutGenerator(object):
 
         act = self.controller.forward(obs, hid[0])
         act = act.detach().clamp(min=-1, max=1).numpy().flatten()
-        # act = torch.argmax(act)
-        # act = act.cpu().numpy()
+        # act = torch.argmax(act).numpy()
         return act
 
     def rollout(self, params, render=False):
@@ -344,8 +340,8 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
-    num_episodes = 1 #ANTHONY SAID THIS SHOULD BE 100
-    episode_length = 15 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
+    num_episodes = 100 #ANTHONY SAID THIS SHOULD BE 100
+    episode_length = 45 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
@@ -360,7 +356,7 @@ if __name__ == "__main__":
         hid = (torch.zeros(batch_size, model.hidden, dtype=pt.float), # .to(device)
                torch.zeros(batch_size, model.hidden, dtype=pt.float))
         epoch_count.append(i_episode)
-        loss = 0.0
+        loss = 0.0 
         now = time()
         for i in range(episode_length):
             # state = state #.to(device=device)
@@ -394,8 +390,8 @@ if __name__ == "__main__":
             nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
             # print(done)
-            # if done:
-            #     break
+            if done:
+                break
 
         # print(f"time taken = {time() - now}")
         # print(f'val  is {val}')
@@ -413,6 +409,23 @@ if __name__ == "__main__":
         losses.append(val)
         rewards.append(reward)
     torch.save(model.state_dict(), rnn_filename)
+
+    def moving_average(x, w):
+        return np.convolve(x, np.ones(w), 'valid') / w
+    window_size = 50 
+    plt.plot(moving_average(rewards, window_size))
+    plt.xlabel('Episode')
+    plt.ylabel(f'Rewards (MA-{window_size})')
+    plt.title(f'Rewards of World Model\'s LSTM')
+    plt.savefig('loss with MA.png')
+    plt.show()
+
+    plt.plot(moving_average(np.cumsum(rewards), 3))
+    plt.xlabel('Episode')
+    plt.ylabel('Cumulative Rewards') 
+    plt.title('Cumulative Rewards of World Model\'s LSTM')
+    plt.savefig('Cumulative Rewards of World Mode LSTM.png')
+    plt.show()
 
     # env.close()
     # print('close env and sleep')
