@@ -13,6 +13,9 @@ Branch: *Purpose*
 * Other Branches: {Anthony} Are for the ROS environment. All work is merged into **Main**
 
 
+To run, you will need to, in sourced terminals & in-order, run the following [launch file](far_ws/src/follow_ahead_rl/launch), `turtlebot.launch`, and code like [move_test.py](far_ws/src/follow_ahead_rl/scripts/move_test.py) or [td_ddpg_continuous.py](far_ws/src/follow_ahead_rl/scripts/td_ddpg_continuous.py)
+
+
 ## Introduction
 
 **What is Follow-Ahead?** Following-ahead algorithms use machine learning to predict human trajectory to stay ahead of humans. Follow-behind algorithms have had more recognition. For example, one application is a follow-behind shopping cart. **But,** there is a lack of security. 
