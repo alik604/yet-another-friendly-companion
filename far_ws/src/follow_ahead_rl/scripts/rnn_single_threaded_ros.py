@@ -15,8 +15,6 @@ Reference: https://github.com/ctallec/world-models
 TODO 
 get CUDA working... issues with queue
 get batch_size working... not worth it
-
-human not moving while training rnn
 '''
 
 import argparse
