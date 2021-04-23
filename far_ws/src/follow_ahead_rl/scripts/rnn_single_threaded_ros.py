@@ -350,7 +350,7 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
-    num_episodes = 2000 # later 5000
+    num_episodes = 3 #2000 # later 5000
     episode_length = 500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
@@ -406,6 +406,8 @@ if __name__ == "__main__":
         # print(f"time taken = {time() - now}")
         # print(f'val  is {val}')
         print(f'\n\nEpoch is {i_episode} | Rewards is {reward}\n\n')
+        with open("lstm_reward.txt", "a") as f:
+            f.write(f" {reward},")
         loss = loss/episode_length 
         val = loss.item()
 
@@ -491,7 +493,7 @@ if __name__ == "__main__":
     rewards = []
 
     print("#################### ABOUT TO RUN CONTROLLER TRAINING ################")
-    while True: # notes.stop(): #  we could* make this True
+    while True: # not es.stop(): #  we could* make this True
         if -cur_best > target_return:
             print("Already better than target, terminating...")
             break
@@ -539,6 +541,8 @@ if __name__ == "__main__":
                     "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
                     "state_dict": controller.state_dict(), },
                     join(ctrl_dir, "best.tar"))
+            with open("controller_reward.txt", "a") as f:
+                f.write(f" {best},")
             if -best > target_return:
                 print(f"Terminating controller training with value {best}...")
                 break
@@ -549,15 +553,15 @@ if __name__ == "__main__":
     print('program exiting...')
     es.result_pretty()
 
-    plt.clf()
-    plt.cla()
-    plt.close()
-
-    plt.plot(rewards)
-    plt.xlabel('Epoch of Training Controller')
-    plt.ylabel(f'Rewards')
-    plt.title(f'Rewards of World Model\'s Controller')
-    plt.savefig('Rewards.png')
+    # plt.clf()
+    # plt.cla()
+    # plt.close()
+    print(f'\n\n\n\n rewards are: {rewards}\n\n\n\n\n\n\n')
+    # plt.plot(rewards)
+    # plt.xlabel('Epoch of Training Controller')
+    # plt.ylabel(f'Rewards')
+    # plt.title(f'Rewards of World Model\'s Controller')
+    # plt.savefig('Rewards.png')
     # plt.show()
 
     env.close()
