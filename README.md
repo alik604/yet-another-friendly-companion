@@ -6,8 +6,8 @@ By Emma Hughson, Kai Ho Anthony Cheung, and Khizr Ali Pardhan. An expansion upon
 
 ## Meta 
 Branch: *Purpose*  
-* Main: {Team} All work except World Models code and enviroment 
-* World Models: {Emma & K. Ali} This has a outdate ROS environment, as the newer would not run on Ali's machine
+* Main: {Team} This branch contains the working environment designated for testing the HINN and trajectory planner solution.  For evaluation us the hinn_dh_eval.
+* World Models: {Emma & K. Ali} This branch contains the working environment designated for testing World Model implementation.
 * Development: {K. Ali} Everything important in merged into **Main** 
 * Monte Carlo: {Emma} Everything important in merged into **World Models**
 * Other Branches: {Anthony} Are for the ROS environment. All work is merged into **Main**
