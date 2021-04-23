@@ -2,14 +2,12 @@
 Single processed world model 
 
 
-Emma Hughson: Original work - core code, debugging loss function (gym-LunarLander)  
-Khizr Ali Pardhan: Debugging & testing (gym-LunarLander), adapting to our ROS env % debugging (gazeborosAC-v0), making single threaded and dubuging and training
-        - I trained the LSTM for about 8000 epochs & the controller for about 100 epoch, with a rollout of 100 and pop_size of 8.  
-
+Reference: https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
+Emma Hughson: Original work, core code, debugging loss function  
+Khizr Ali Pardhan: Debugging, code review, testing, adapting to our ROS env, debugging, making single threaded and dubuging and training
 
 Despite difference in details, Equal time was invested.  
-Reference: https://github.com/ctallec/world-models
-    - Note: that we do not use a VAE. This was a huge difference from most World Models implementation. 
+
 
 
 TODO 
@@ -40,7 +38,7 @@ from torch import nn, optim, distributions
 
 import gym_gazeboros_ac
 
-matplotlib.use('GTK')
+matplotlib.use('GTK') # qt5agg
 
 device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # use_cuda = torch.cuda.is_available()
@@ -190,12 +188,14 @@ class RolloutGenerator(object):
         # copy params into the controller
         if params is not None:
             load_parameters(params, self.controller)
+        # print(f'we are in rollout')
         obs = env.reset()
         cumulative = 0
         i = 0
         
         while True:
             action = self.get_action(obs) # calls env.reset()
+            # print(action)
             obs, reward, done, _ = env.step(action)
 
             # if render or i == 0:  # This first render is required! # TODO is it? 
@@ -340,7 +340,7 @@ if __name__ == "__main__":
     params = [p for p in model.parameters() if p.requires_grad]
 
     optimizer = optim.RMSprop(model.parameters())
-    # criterion = torch.nn.MSELoss()
+    criterion = torch.nn.MSELoss()
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
@@ -381,10 +381,11 @@ if __name__ == "__main__":
 
             # print(f'state before {state}')
             # print(f'state mid    {np.array([state)}')
-            # this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
+            # TODO #this might have to changed depending on how the state is structured -> make more efficient --> the next state is this and we use this next state to calcualte the log_prob in the loss function
             state = torch.from_numpy(np.array([state], dtype=np.float32)) 
 
 
+            #print("this si the next state", state)
             dist = distributions.Normal(loc=mu, scale=sigma)
             nll = -dist.log_prob(state)     # negative log-likelihood of the next state!
             nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
@@ -411,7 +412,7 @@ if __name__ == "__main__":
         losses.append(val)
         rewards.append(reward)
 
-        if i_episode % 200: 
+        if i_episode % 100: 
             torch.save(model.state_dict(), rnn_filename)
 
     # save rewards and weights to disk

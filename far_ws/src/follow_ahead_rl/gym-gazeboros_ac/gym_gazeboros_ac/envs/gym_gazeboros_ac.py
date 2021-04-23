@@ -680,7 +680,7 @@ class GazeborosEnv(gym.Env):
 
             orientation = euler[0]
             fall_angle = np.deg2rad(90)
-            if abs(abs(euler[1]) - fall_angle) < 0.001 or abs(abs(euler[2]) - fall_angle) < 0.001: # TODO changed from 0.1 by Ali 
+            if abs(abs(euler[1]) - fall_angle) < 0.1 or abs(abs(euler[2]) - fall_angle) < 0.1: # TODO decease this by hand, for during early training stage 
                 self.fallen = True
             # get velocity
             twist = states_msg.twist[model_idx]
