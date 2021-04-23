@@ -1,6 +1,6 @@
 ## Installation 
 
-### Please see *Project Setup.pdf*  for details
+### Please see [Project Setup.pdf](Project%20Setup.pdf) for details
 
 - Install [ROS1](http://wiki.ros.org/ROS/Installation)
 - Install [Gazebo 9.16](http://gazebosim.org/tutorials?cat=install&tut=install_ubuntu&ver=9.0)
