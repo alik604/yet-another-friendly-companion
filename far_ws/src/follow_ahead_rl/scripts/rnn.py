@@ -6,7 +6,6 @@ get batch_size working... not worth it
 human not moving while training rnn
 '''
 
-# rnn.py ali's changes
 import argparse
 from os import mkdir, unlink, listdir, getpid
 from os.path import join, exists
@@ -610,42 +609,3 @@ if __name__ == "__main__":
     e_queue.put("EOP")
     env.close()
     
-    
-
-##################### ALI'S NOTES ON THE LSTM ###################################
-
-# Select and perform an action
-# need to get state data and make a sequence of the state data
-# zero pre-padding
-"""
-np.array([
-np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step])
-,np.array(state_at_a_time_step]) #current one should be very last timestep 
-])
-"""
-# seq_len = look back window
-#       #if len(state_array)== 10:
-#    then pred = model.forward(state_array, action, hid )
-# else:
-#    state
-#    action = [0]
-# ls = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
-# env = new env
-
-# while True:
-#     state = env.step()
-#     ls.append(state)
-
-# input = ls[:-10] # 9 zeros, and new state #look at engineer man on youtube!!!! sentence generation and lyric generation
-
-# lstm(input)
-
-
-# if env is done:
-#    break

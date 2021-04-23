@@ -20,27 +20,25 @@ human not moving while training rnn
 import argparse
 from os import mkdir, unlink, listdir, getpid
 from os.path import join, exists
-from pickle import decode_long
 from time import sleep, time
+
 import sys
 import random
 import cma
 import gym 
 import numpy as np
+
 import matplotlib.pyplot as plt
-from collections import namedtuple
-from tqdm import tqdm
+import matplotlib
+
 import torch
 import torch as pt
 from torch import nn, optim, distributions
-import matplotlib.pyplot as plt
+# from torch.multiprocessing import Process, Queue
 
-# import torch.nn.functional as F
-# from torch.autograd import Variable
-from torch.multiprocessing import Process, Queue
 import gym_gazeboros_ac
 
-
+matplotlib.use('GTK') # qt5agg
 
 device = 'cpu' # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # use_cuda = torch.cuda.is_available()
@@ -57,20 +55,15 @@ torch.manual_seed(RANDOMSEED)
 ###############################  hyper parameters  #########################
 ENV_NAME = 'gazeborosAC-v0'  # environment name
 # ENV_NAME = "LunarLander-v2"
-batch_size = 1 # 128 # TODO fix https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
-# GAMMA = 0.999
-# EPS_START = 0.9
-# EPS_END = 0.05
-# EPS_DECAY = 200
+batch_size = 1  # not worth the effort to fix. ML is relatively fast https://github.com/ctallec/world-models/blob/master/trainmdrnn.py
 LR = 0.001
-# reward = 1
 latent_space = 64 # hidden of the LSTM & of the controller 
-# gaussian = 5
 
-pop_size = 8 #4 # if this is larger than index, it will prevent a index error.
-n_samples = 1 #4
+num_episodes = 1000 # later 2000
+episode_length = 300 # SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
 
-
+pop_size = 4 #4 # Since I made this single threaded, this at time will be expected to be close to 100. I catch the index error.
+n_samples = 1 # should be 4. but I think i introduced a bug when I made this single threaded, so we keep this at 1
 
 
 parser = argparse.ArgumentParser()
@@ -142,8 +135,6 @@ class Controller(nn.Module):
         return self.fc(state)
 
 
-
-
 class RolloutGenerator(object):
     """Utility to generate rollouts.
     Encapsulate everything that is needed to generate rollouts in the TRUE ENV
@@ -176,7 +167,7 @@ class RolloutGenerator(object):
         """
 
         """
-        # obs = env.reset() # CHANGED. we are now given it from rollout. 
+        obs = env.reset() # CHANGED. we are now given it from rollout. 
 
         hid = (torch.zeros(1, latent_space, dtype=pt.float), torch.zeros(1, latent_space, dtype=pt.float))  # h  # c $ TODO 64 changed to latent_space, which is 64 
  
@@ -220,7 +211,6 @@ class RolloutGenerator(object):
             i += 1
         
 
-
 def unflatten_parameters(params, example, device):
     """Unflatten parameters.
     :args params: parameters as a single 1D np array
@@ -259,7 +249,8 @@ def load_parameters(params, controller):
     for p, p_0 in zip(controller.parameters(), params):
         p.data.copy_(p_0)
 
-def evaluate(solutions, results, rollouts=100):
+
+def evaluate(solutions, results, rollouts=100): # TODO was 100
     """Give current controller evaluation.
     Evaluation is minus the cumulated reward averaged over rollout runs.
     :args solutions: CMA set of solutions
@@ -272,13 +263,14 @@ def evaluate(solutions, results, rollouts=100):
     restimates = []
 
     for s_id in range(rollouts):
-        p_queue.put((s_id, best_guess))
+        # p_queue.put((s_id, best_guess))
+        p_queue[s_id] = best_guess
 
     print("Start Evaluating...")
     # for _ in tqdm(range(rollouts)):
     #         sleep(0.1)
-    while not r_queue.empty():
-        restimates.append(r_queue.get()[1])
+    while len(r_queue) > 0: # not r_queue.empty():
+        restimates.append(r_queue.popitem()[1])
     print("Done Evaluating...")
     return best_guess, np.mean(restimates), np.std(restimates)
 
@@ -297,11 +289,14 @@ def slave_routine():
     process index p_index (gpu = p_index % n_gpus).
     """
     # with torch.no_grad():
-    while not p_queue.empty():
+    # while not p_queue.empty():
+    while len(p_queue) > 0:
         # sleep(0.5) # waiting wont do us any good. single thread
         # print("p_queue is not empty. We are putting stuff in r_queue")
-        s_id, params = p_queue.get()
-        r_queue.put((s_id, rollout_generator.rollout(params)))  
+        s_id, params = p_queue.popitem()
+        # r_queue.put((s_id, rollout_generator.rollout(params)))
+        r_queue[s_id] = rollout_generator.rollout(params)  
+        
     print("p_queue is empty")
 
 
@@ -350,8 +345,6 @@ if __name__ == "__main__":
     # softmax = nn.Softmax(dim=1)
     
     losses, rewards = [], []
-    num_episodes = 3 #2000 # later 5000
-    episode_length = 500 #SET TO 45 FOR EP LENGTH FOR GYMGAZEBOROS
     print("#################### LETS DO THE RNN ###############################")
 
     epoch_count = []
@@ -376,15 +369,15 @@ if __name__ == "__main__":
             
             # Continous
             action = pred.detach().clamp(min=-1, max=1).numpy().flatten()  # ensure bounds
+            
             # Discrete
             # action = torch.argmax(pred).numpy()
-
 
             print(f'action = {action}')
             mu, sigma, hid = model.forward(state, pred, hid)
 
             #sleep(0.1) #TODO ANTHONY SAID TO INSERT SLEEP 
-            state, reward, done,_  = env.step(action) #not sure what the data structure is  #TODO need to to put variable instead of underscore!!! 
+            state, reward, done,_  = env.step(action)
 
 
             # print(f'state before {state}')
@@ -395,7 +388,7 @@ if __name__ == "__main__":
 
             #print("this si the next state", state)
             dist = distributions.Normal(loc=mu, scale=sigma)
-            nll = -dist.log_prob(state)  # negative log-likelihood of the next state!
+            nll = -dist.log_prob(state)     # negative log-likelihood of the next state!
             nll = torch.mean(nll, dim=-1)   # mean over dimensions # TODO use mean or sum? 
             nll = torch.mean(nll, dim=0)    # mean over batch
             loss += nll
@@ -406,14 +399,13 @@ if __name__ == "__main__":
         # print(f"time taken = {time() - now}")
         # print(f'val  is {val}')
         print(f'\n\nEpoch is {i_episode} | Rewards is {reward}\n\n')
-        with open("lstm_reward.txt", "a") as f:
-            f.write(f" {reward},")
         loss = loss/episode_length 
         val = loss.item()
 
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        optimizer.zero_grad()
+        
 
         # state = torch.tensor(state)
         # print(f'state after {state}')
@@ -424,29 +416,34 @@ if __name__ == "__main__":
         if i_episode % 100: 
             torch.save(model.state_dict(), rnn_filename)
 
+    # save rewards and weights to disk
+    with open("lstm_reward.txt", "a") as f:
+        for reward in rewards:
+            f.write(f" {reward},")
     torch.save(model.state_dict(), rnn_filename)
+
     def moving_average(x, w):
         return np.convolve(x, np.ones(w), 'valid') / w
     window_size = 50 
-    plt.plot(moving_average(rewards, window_size))
-    plt.xlabel('Episode')
-    plt.ylabel(f'Rewards (MA-{window_size})')
-    plt.title(f'Rewards of World Model\'s LSTM')
-    plt.savefig('Rewards with MA.png')
+    # plt.plot(moving_average(rewards, window_size))
+    # plt.xlabel('Episode')
+    # plt.ylabel(f'Rewards (MA-{window_size})')
+    # plt.title(f'Rewards of World Model\'s LSTM')
+    # plt.savefig('Rewards with MA.png')
     # plt.show()
-    plt.clf()
-    plt.cla()
-    plt.close()
+    # plt.clf()
+    # plt.cla()
+    # plt.close()
 
-    plt.plot(moving_average(np.cumsum(rewards), 3))
-    plt.xlabel('Episode')
-    plt.ylabel('Cumulative Rewards') 
-    plt.title('Cumulative Rewards of World Model\'s LSTM')
-    plt.savefig('Cumulative Rewards of World Mode LSTM.png')
+    # plt.plot(moving_average(np.cumsum(rewards), 3))
+    # plt.xlabel('Episode')
+    # plt.ylabel('Cumulative Rewards') 
+    # plt.title('Cumulative Rewards of World Model\'s LSTM')
+    # plt.savefig('Cumulative Rewards of World Mode LSTM.png')
     # plt.show()
-    plt.clf()
-    plt.cla()
-    plt.close()
+    # plt.clf()
+    # plt.cla()
+    # plt.close()
 
     # env.close()
     # print('close env and sleep')
@@ -460,12 +457,11 @@ if __name__ == "__main__":
     #plt.show()
     
     cur_best = None
-
-    p_queue = Queue() 
+    p_queue = dict() # Queue() 
     # filled inside evaulate and in main controller loop 
     # emptied in slave
 
-    r_queue = Queue() 
+    r_queue = dict() # Queue() 
     # filled in slave. 
     # emptied evaulate and in main controller loop 
 
@@ -486,7 +482,7 @@ if __name__ == "__main__":
     es = cma.CMAEvolutionStrategy(flatten_parameters(parameters), 0.1, {"popsize": pop_size})
     rollout_generator = RolloutGenerator() # global variable for use in slave routine
 
-    target_return = 250
+    target_return = 50
     epoch = 0
     log_step = 3
     cur_best = 0
@@ -501,9 +497,10 @@ if __name__ == "__main__":
         solutions = es.ask()
 
         # push parameters to queue
-        for s_id, s in enumerate(solutions):
+        for s_id, parameters in enumerate(solutions):
             for _ in range(n_samples):
-                p_queue.put((s_id, s))
+                # p_queue.put((s_id, s))
+                p_queue[s_id] = parameters
 
         # This slave call is stealing the data the other slave calls needs..
         if epoch % log_step != 0:
@@ -511,17 +508,16 @@ if __name__ == "__main__":
 
         # print("we just put something in p_queue")
         
-        while not r_queue.empty():
+        while len(r_queue) > 0: # not r_queue.empty():
             # print("We are in this for loop?")
-            result_list_idx, r = r_queue.get()
+            result_list_idx, r = r_queue.popitem()
             try:
                 result_list[result_list_idx] += r / n_samples
                 # print(f'r_queue is not empty', result_list)
             except Exception as e:
                 print(f'result_list_idx is {result_list_idx}')
                 print(f'Caught error. {e}')
-
-
+                break # if we can use it, let somthing else use the data in r_queue...
 
         es.tell(solutions, result_list)
         es.disp()
@@ -538,9 +534,9 @@ if __name__ == "__main__":
             load_parameters(best_params, controller)
             torch.save(
                 {"epoch": epoch,
-                    "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
-                    "state_dict": controller.state_dict(), },
-                    join(ctrl_dir, "best.tar"))
+                "reward": -cur_best, # TODO why do we have a negate?  https://github.com/ctallec/world-models/blob/master/traincontroller.py#L203
+                "state_dict": controller.state_dict(), },
+                join(ctrl_dir, "best.tar"))
             with open("controller_reward.txt", "a") as f:
                 f.write(f" {best},")
             if -best > target_return:
