@@ -1,3 +1,6 @@
+# Deprecated branch. it is now merged into `MCTS`
+
+
 # Following from ahead 
 
 > Comparing Model-Based Methods to Predict Human Trajectory in Follow-Ahead Problem
